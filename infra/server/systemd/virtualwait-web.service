@@ -1,0 +1,22 @@
+[Unit]
+Description=VirtualWait Next.js web application
+After=network.target
+
+[Service]
+Type=simple
+User=virtualwait
+Group=virtualwait
+WorkingDirectory=/opt/virtualwait/apps/web
+EnvironmentFile=/etc/virtualwait/web.env
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/virtualwait/web
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

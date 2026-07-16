@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://virtualwait.local/schemas/verification-job-response.v1.json",
+  "title": "VerificationJobResponseV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status"],
+  "properties": {
+    "status": { "type": "string", "enum": ["SUCCEEDED", "FAILED", "PROCESSING", "LOGGING_OUT"] },
+    "errorCode": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Z][A-Z0-9_]*$" },
+    "identityProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject"],
+      "properties": {
+        "subject": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "profile": { "$ref": "public-profile.schema.json" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "SUCCEEDED" } }, "required": ["status"] },
+      "then": { "required": ["identityProof", "profile"], "not": { "required": ["errorCode"] } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "FAILED" } }, "required": ["status"] },
+      "then": { "required": ["errorCode"], "not": { "anyOf": [{ "required": ["identityProof"] }, { "required": ["profile"] }] } }
+    }
+  ]
+}

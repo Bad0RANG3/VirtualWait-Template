@@ -1,0 +1,11 @@
+[Unit]
+Description=Run VirtualWait SQLite backup nightly
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Asia/Shanghai
+RandomizedDelaySec=15min
+Persistent=true
+Unit=virtualwait-backup.service
+
+[Install]
+WantedBy=timers.target

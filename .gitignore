@@ -1,0 +1,40 @@
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+.venv/
+**/.venv/
+
+# Node / Next.js
+**/node_modules/
+**/.next/
+**/out/
+**/.turbo/
+**/*.tsbuildinfo
+
+# Local secrets and runtime data
+.env
+.env.*
+!.env.example
+**/settings.py
+**/*.sqlite
+**/*.sqlite3
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/backups/
+**/gateway.db
+
+# Editors / OS
+**/.DS_Store
+.vscode/
+.idea/
+
+# Platform local state
+.vercel/

@@ -1,0 +1,4 @@
+{
+  "qrCode": "mock:10001:Player:14500:VirtualWait%20Player",
+  "requestedPublicFields": ["displayName", "rating", "title"]
+}

@@ -1,0 +1,12 @@
+{
+  "status": "SUCCEEDED",
+  "identityProof": {
+    "subject": "9a43d8fe49e1df7eef9dca83e85805ac978c79b61c9b3410f6f458a29a05c62c"
+  },
+  "profile": {
+    "displayName": "Player",
+    "rating": 14500,
+    "title": "VirtualWait Player",
+    "iconUrl": null
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://virtualwait.local/schemas/verification-job-create-response.v1.json",
+  "title": "CreateVerificationJobResponseV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["jobId"],
+  "properties": {
+    "jobId": { "type": "string", "minLength": 1, "maxLength": 128 }
+  }
+}

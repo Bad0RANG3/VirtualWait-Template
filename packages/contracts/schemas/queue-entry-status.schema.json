@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://virtualwait.local/schemas/queue-entry-status.json",
+  "title": "QueueEntryStatus",
+  "type": "string",
+  "enum": ["WAITING", "CALLED", "PLAYING", "DONE", "CANCELLED", "EXPIRED"]
+}

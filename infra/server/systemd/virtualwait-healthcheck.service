@@ -1,0 +1,16 @@
+[Unit]
+Description=VirtualWait local Web and Gateway health check
+After=virtualwait-web.service virtualwait-gateway.service
+
+[Service]
+Type=oneshot
+User=virtualwait
+Group=virtualwait
+WorkingDirectory=/opt/virtualwait/apps/web
+EnvironmentFile=/etc/virtualwait/web.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run healthcheck
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

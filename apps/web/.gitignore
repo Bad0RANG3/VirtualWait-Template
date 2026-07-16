@@ -1,0 +1,11 @@
+.next/
+node_modules/
+.env
+.env.local
+.env.*.local
+data/
+test-results/
+playwright-report/
+*.db
+*.sqlite
+*.sqlite3

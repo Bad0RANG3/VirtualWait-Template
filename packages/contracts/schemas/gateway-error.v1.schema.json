@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://virtualwait.local/schemas/gateway-error.v1.json",
+  "title": "GatewayErrorV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["error"],
+  "properties": {
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "INVALID_REQUEST",
+            "INVALID_SIGNATURE",
+            "REPLAY_DETECTED",
+            "RATE_LIMITED",
+            "QR_EXCHANGE_FAILED",
+            "LOGIN_FAILED",
+            "PROFILE_FETCH_FAILED",
+            "LOGOUT_PENDING",
+            "LOGOUT_FAILED",
+            "UPSTREAM_TIMEOUT",
+            "UPSTREAM_PROTOCOL_ERROR",
+            "JOB_EXPIRED",
+            "INTERNAL_ERROR"
+          ]
+        }
+      }
+    }
+  }
+}

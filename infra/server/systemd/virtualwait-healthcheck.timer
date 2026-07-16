@@ -1,0 +1,12 @@
+[Unit]
+Description=Run VirtualWait local health check every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+RandomizedDelaySec=10s
+Persistent=true
+Unit=virtualwait-healthcheck.service
+
+[Install]
+WantedBy=timers.target
