@@ -1,6 +1,6 @@
-# VirtualWait Template
+# VirtualWait
 
-一个可复用的虚拟排队 Web 模板。仓库不包含真实用户、场地、二维码、令牌、密钥或运行数据库；默认场地和机台均为示例配置。
+河源坚基动漫E族的舞萌虚拟排队 Web 应用。仓库不包含真实用户、二维码、令牌、密钥或运行数据库。
 
 > 当前身份 Gateway 只提供离线 Mock，用于本地开发和集成测试。接入任何真实身份服务前，必须自行完成授权、实现、审计和安全测试。
 
@@ -11,7 +11,7 @@
 - Python 签名 Gateway 与离线 Mock 提供者；
 - JSON Schema、E2E/浏览器测试和自托管配置样例。
 
-默认示例场地为 `示例场地`，包含 `机台 A`、`机台 B`。请在首次部署前替换它们，位置见 [模板定制说明](docs/TEMPLATE.md)。
+当前场地为 `河源坚基动漫E族`，包含 `旧机`、`新机`；两者仅按引进时间先后区分，不代表规则或性能差异。
 
 ## 快速开始
 
@@ -44,13 +44,13 @@ docs/                    模板定制与安全发布文档
 
 ## 文档
 
-- [模板定制](docs/TEMPLATE.md)：替换场地、机台、文案和身份接入；
+- [模板定制](docs/TEMPLATE.md)：场地、机台、文案和身份接入配置；
 - [安全与发布清单](docs/SECURITY.md)：密钥、数据、日志和部署要求；
 - [Web 应用说明](apps/web/README.md)；
 - [Gateway 说明](services/sdgb-gateway/README.md)；
 - [自托管说明](infra/server/README.md)。
 
-## 发布模板前的检查
+## 部署前检查
 
 ```bash
 cd apps/web

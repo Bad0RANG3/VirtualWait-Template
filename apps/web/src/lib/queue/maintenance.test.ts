@@ -71,26 +71,26 @@ test("maintenance applies configured privacy retention policies", async () => {
     `INSERT INTO queue_party
      (id, queue_id, play_mode, status, host_user_id, guest_user_id,
       host_confirmed, guest_confirmed, created_at, updated_at)
-     VALUES ('party-old', 'queue-a', 'DUO', 'CONFIRMED', 'history-user', 'recent-user', 1, 1, ?, ?)`,
+     VALUES ('party-old', 'queue-old', 'DUO', 'CONFIRMED', 'history-user', 'recent-user', 1, 1, ?, ?)`,
   ).run(old, old);
 
   db.prepare(
     `INSERT INTO queue_entry
      (id, queue_id, user_id, party_id, play_mode, sequence_number, status,
       version, joined_at, finished_at, created_at, updated_at)
-     VALUES ('entry-old', 'queue-a', 'history-user', 'party-old', 'DUO', 100, 'DONE', 1, ?, ?, ?, ?)`,
+     VALUES ('entry-old', 'queue-old', 'history-user', 'party-old', 'DUO', 100, 'DONE', 1, ?, ?, ?, ?)`,
   ).run(old, old, old, old);
   db.prepare(
     `INSERT INTO queue_entry
      (id, queue_id, user_id, party_id, play_mode, sequence_number, status,
       version, joined_at, finished_at, created_at, updated_at)
-     VALUES ('entry-recent', 'queue-a', 'recent-user', NULL, 'SOLO', 101, 'DONE', 1, ?, ?, ?, ?)`,
+     VALUES ('entry-recent', 'queue-old', 'recent-user', NULL, 'SOLO', 101, 'DONE', 1, ?, ?, ?, ?)`,
   ).run(recent, recent, recent, recent);
   db.prepare(
     `INSERT INTO queue_entry
      (id, queue_id, user_id, party_id, play_mode, sequence_number, status,
       version, joined_at, created_at, updated_at)
-     VALUES ('entry-active', 'queue-b', 'active-user', NULL, 'SOLO', 102, 'WAITING', 1, ?, ?, ?)`,
+     VALUES ('entry-active', 'queue-new', 'active-user', NULL, 'SOLO', 102, 'WAITING', 1, ?, ?, ?)`,
   ).run(old, old, old);
 
 

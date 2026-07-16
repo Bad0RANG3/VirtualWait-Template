@@ -61,19 +61,19 @@ export default async function HomePage() {
                       扫码登录
                       <ArrowRight className="h-4 w-4" />
                     </Link>
-                    <Link className="btn-ghost" href={queuePath("machine-b")}>
-                      先看机台 B 队列
+                    <Link className="btn-ghost" href={queuePath("new")}>
+                      先看新机队列
                     </Link>
                   </>
                 )}
                 {user && (
                   <>
-                    <Link className="btn-mint" href={queuePath("machine-b")}>
+                    <Link className="btn-mint" href={queuePath("new")}>
                       <Gamepad2 className="h-4 w-4" />
-                      去机台 B 排卡
+                      去新机排卡
                     </Link>
-                    <Link className="btn-ghost" href={queuePath("machine-a")}>
-                      去机台 A
+                    <Link className="btn-ghost" href={queuePath("old")}>
+                      去旧机
                     </Link>
                     {user.bound && (
                       <Link className="btn-ghost" href="/bind">
@@ -280,11 +280,11 @@ export default async function HomePage() {
             <div className="mt-5 flex flex-wrap gap-2">
               <Link
                 className="btn-primary"
-                href={user ? queuePath("machine-a") : "/login"}
+                href={user ? queuePath("old") : "/login"}
               >
-                {user ? "去机台 A 排卡" : "扫码登录"}
+                {user ? "去旧机排卡" : "扫码登录"}
               </Link>
-              <Link className="btn-ghost" href={user ? "/bind" : queuePath("machine-b")}>
+              <Link className="btn-ghost" href={user ? "/bind" : queuePath("new")}>
                 {user ? "刷新资料" : "先看队列"}
               </Link>
             </div>

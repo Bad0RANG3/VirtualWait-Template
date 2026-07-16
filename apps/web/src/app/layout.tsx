@@ -16,8 +16,8 @@ const body = IBM_Plex_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "VirtualWait Template",
-  description: "可定制的虚拟排队 Web 模板",
+  title: "VirtualWait · 河源坚基动漫E族",
+  description: "河源坚基动漫E族舞萌虚拟排队",
 };
 
 export default async function RootLayout({

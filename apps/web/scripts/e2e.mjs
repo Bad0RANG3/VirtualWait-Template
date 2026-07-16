@@ -151,7 +151,7 @@ try {
 
   const join = await post(
     baseUrl,
-    "/api/queues/sample-venue/machine-a/join",
+    "/api/queues/heyuan-jianji-anime/old/join",
     { playMode: "SOLO" },
     { Cookie: userCookie }
   );
@@ -173,7 +173,7 @@ try {
   assert.equal(entries.status, 200);
   const entry = (await entries.json()).entries.find((item) => item.id === joinBody.entryId);
   assert.ok(entry, "admin should see the newly joined entry");
-  const publicQueue = await fetch(`${baseUrl}/api/queues/sample-venue/machine-a/public`);
+  const publicQueue = await fetch(`${baseUrl}/api/queues/heyuan-jianji-anime/old/public`);
   assert.equal(publicQueue.status, 200);
   const publicBody = await publicQueue.json();
   assert.ok(
@@ -192,7 +192,7 @@ try {
   assert.equal(requeue.status, 200, "admin action should accept the current entry version");
   const queueUpdate = await post(
     baseUrl,
-    "/api/admin/queues/queue-a/status",
+    "/api/admin/queues/queue-old/status",
     { status: "PAUSED" },
     { Cookie: adminCookie }
   );

@@ -29,16 +29,16 @@ npm run healthcheck
 
 `data/virtualwait.db` 是本地运行数据，不会被提交。`npm run db:reset` 会删除该数据库，仅限开发环境使用。
 
-## 模板默认页面
+## 当前页面
 
-- `/`：示例场地首页；
+- `/`：河源坚基动漫E族首页；
 - `/login`：二维码登录；
 - `/bind`：刷新已登录用户的公开资料；
-- `/queue/sample-venue/machine-a`、`/queue/sample-venue/machine-b`：示例队列；
+- `/queue/heyuan-jianji-anime/old`、`/queue/heyuan-jianji-anime/new`：旧机与新机队列；
 - `/me`：当前用户的活动记录；
 - `/admin`：管理员运维台。
 
-场地、机台和开放时间定义在 `src/lib/constants/venue.ts`。复制模板后应先替换这些示例值；详细步骤见根目录的 [模板定制文档](../../docs/TEMPLATE.md)。
+场地、机台和开放时间定义在 `src/lib/constants/venue.ts`。旧机和新机仅按引进时间先后区分；详细配置见根目录的 [模板定制文档](../../docs/TEMPLATE.md)。
 
 ## 环境变量
 
