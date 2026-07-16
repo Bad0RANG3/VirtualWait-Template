@@ -1,0 +1,70 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      APP_BASE_URL: https://wait.example.test
+      GATEWAY_MODE: remote
+      # Production supports the documented private same-host Gateway hop;
+      # preflight/build here exercise that exception rather than remote HTTP.
+      GATEWAY_BASE_URL: http://127.0.0.1:8787
+      TRUST_PROXY_HEADERS: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create ephemeral verification secrets
+        run: |
+          {
+            echo "SESSION_SECRET=$(openssl rand -hex 32)"
+            echo "PUBLIC_ID_HMAC_SECRET=$(openssl rand -hex 32)"
+            echo "GATEWAY_SHARED_SECRET=$(openssl rand -hex 32)"
+            echo "ADMIN_API_TOKEN=$(openssl rand -hex 32)"
+          } >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Web dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: Install Playwright Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+      - name: Verify Web and HTTP E2E
+        working-directory: apps/web
+        run: |
+          npm run preflight -- --production
+          npm run preflight -- --browser
+          npm test
+          npm run test:e2e
+          npm run test:browser
+          npm run lint
+          npx tsc --noEmit
+          npm run build
+          backup_dir=$(mktemp -d)
+          trap 'rm -rf "$backup_dir"' EXIT
+          VIRTUALWAIT_DATA_DIR="$backup_dir/data" npm run db:backup -- --output "$backup_dir/virtualwait.db"
+          npm run db:verify -- --input "$backup_dir/virtualwait.db"
+          npm audit --omit=dev --package-lock-only --audit-level=high
+      - name: Verify systemd templates
+        run: systemd-analyze verify infra/server/systemd/virtualwait-*.service infra/server/systemd/virtualwait-*.timer
+      - name: Verify server environment examples
+        run: node infra/server/scripts/verify-server-env-examples.mjs
+      - name: Verify Nginx template
+        run: node infra/server/scripts/verify-nginx-template.mjs
+      - name: Verify Gateway
+        working-directory: services/sdgb-gateway
+        run: |
+          python -m pip install '.[test]'
+          PYTHONPATH=src pytest -q
