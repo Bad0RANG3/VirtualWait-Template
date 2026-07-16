@@ -1,7 +1,7 @@
 export const VENUE = {
-  id: "venue-heyuan-jianji-anime",
-  name: "河源坚基动漫E族",
-  slug: "heyuan-jianji-anime",
+  id: "venue-template",
+  name: "示例场地",
+  slug: "sample-venue",
   timezone: "Asia/Shanghai",
 } as const;
 
@@ -13,19 +13,19 @@ export const VENUE_HOURS = {
 
 export const MACHINES = [
   {
-    id: "queue-old",
+    id: "queue-a",
     venueId: VENUE.id,
-    name: "旧机",
-    slug: "old",
-    subtitle: "较早引进",
+    name: "机台 A",
+    slug: "machine-a",
+    subtitle: "示例机台 A",
     accent: "coral" as const,
   },
   {
-    id: "queue-new",
+    id: "queue-b",
     venueId: VENUE.id,
-    name: "新机",
-    slug: "new",
-    subtitle: "较晚引进",
+    name: "机台 B",
+    slug: "machine-b",
+    subtitle: "示例机台 B",
     accent: "mint" as const,
   },
 ] as const;
