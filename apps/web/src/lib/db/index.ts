@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { SCHEMA_SQL, MIGRATIONS_SQL } from "./schema";
 import { openDatabase, type Db } from "./sqlite";
-import { MACHINES, VENUE } from "../constants/venue";
+import { ALL_VENUES } from "../constants/catalog";
 
 const globalForDb = globalThis as unknown as {
   __vwDb?: Db;
@@ -19,17 +19,78 @@ function dbPath() {
 
 function seed(db: Db) {
   const now = new Date().toISOString();
-  db.prepare(
-    `INSERT OR IGNORE INTO venue (id, name, slug, timezone, is_active, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 1, ?, ?)`
-  ).run(VENUE.id, VENUE.name, VENUE.slug, VENUE.timezone, now, now);
-
-  for (const m of MACHINES) {
+  for (const venue of ALL_VENUES) {
     db.prepare(
-      `INSERT OR IGNORE INTO queue
-       (id, venue_id, name, slug, status, next_sequence, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'OPEN', 1, ?, ?)`
-    ).run(m.id, m.venueId, m.name, m.slug, now, now);
+      `INSERT OR IGNORE INTO venue
+       (id, name, slug, timezone, is_active, address, region_name, region_kind,
+        machine_count, open_minute, close_minute, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      venue.id,
+      venue.name,
+      venue.slug,
+      venue.timezone,
+      venue.address ?? null,
+      venue.regionName ?? null,
+      venue.regionKind ?? null,
+      venue.machineCount ?? venue.machines.length,
+      venue.hours.openMinute,
+      venue.hours.closeMinute,
+      now,
+      now,
+    );
+
+    // Fill empty exact-info fields from catalog defaults without overwriting admin edits.
+    db.prepare(
+      `UPDATE venue
+       SET address = COALESCE(NULLIF(address, ''), ?),
+           region_name = COALESCE(NULLIF(region_name, ''), ?),
+           region_kind = COALESCE(NULLIF(region_kind, ''), ?),
+           machine_count = COALESCE(machine_count, ?),
+           open_minute = COALESCE(open_minute, ?),
+           close_minute = COALESCE(close_minute, ?),
+           updated_at = CASE
+             WHEN (address IS NULL OR address = '')
+               OR (region_name IS NULL OR region_name = '')
+               OR (region_kind IS NULL OR region_kind = '')
+               OR machine_count IS NULL
+               OR open_minute IS NULL
+               OR close_minute IS NULL
+             THEN ?
+             ELSE updated_at
+           END
+       WHERE id = ?`
+    ).run(
+      venue.address ?? null,
+      venue.regionName ?? null,
+      venue.regionKind ?? null,
+      venue.machineCount ?? venue.machines.length,
+      venue.hours.openMinute,
+      venue.hours.closeMinute,
+      now,
+      venue.id,
+    );
+
+    for (const machine of venue.machines) {
+      const coinCost = machine.coinCost ?? 1;
+      db.prepare(
+        `INSERT OR IGNORE INTO queue
+         (id, venue_id, name, slug, status, next_sequence, coin_cost, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'OPEN', 1, ?, ?, ?)`
+      ).run(machine.id, venue.id, machine.name, machine.slug, coinCost, now, now);
+
+      // Only fill default when missing / zero on fresh installs; do not clobber admin edits
+      // if the column already has a positive value.
+      db.prepare(
+        `UPDATE queue
+         SET coin_cost = COALESCE(NULLIF(coin_cost, 0), ?),
+             updated_at = CASE
+               WHEN coin_cost IS NULL OR coin_cost = 0 THEN ?
+               ELSE updated_at
+             END
+         WHERE id = ?`
+      ).run(coinCost, now, machine.id);
+    }
   }
 }
 
@@ -192,6 +253,28 @@ function removeOnSiteCallArtifacts(db: Db) {
   try {
     db.exec("DROP TABLE IF EXISTS swap_vote; DROP TABLE IF EXISTS swap_request;");
     if (needsRebuild) {
+      // Preserve newer columns (coin_cost / head confirm state) while dropping
+      // retired on-site call fields that older local DBs may still contain.
+      const queueCols = new Set(
+        (db.prepare(`PRAGMA table_info(queue)`).all() as Array<{ name: string }>).map(
+          (col) => col.name,
+        ),
+      );
+      const entryCols = new Set(
+        (db.prepare(`PRAGMA table_info(queue_entry)`).all() as Array<{ name: string }>).map(
+          (col) => col.name,
+        ),
+      );
+      const coinCostExpr = queueCols.has("coin_cost")
+        ? "COALESCE(NULLIF(coin_cost, 0), 1)"
+        : "1";
+      const headEligibleExpr = entryCols.has("head_eligible_at")
+        ? "head_eligible_at"
+        : "NULL";
+      const headMissExpr = entryCols.has("head_miss_count")
+        ? "COALESCE(head_miss_count, 0)"
+        : "0";
+
       db.exec(`
         CREATE TABLE queue__new (
           id TEXT PRIMARY KEY,
@@ -200,12 +283,15 @@ function removeOnSiteCallArtifacts(db: Db) {
           slug TEXT NOT NULL,
           status TEXT NOT NULL CHECK (status IN ('OPEN','PAUSED','CLOSED')),
           next_sequence INTEGER NOT NULL DEFAULT 1,
+          coin_cost INTEGER NOT NULL DEFAULT 1,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           UNIQUE(venue_id, slug)
         );
-        INSERT INTO queue__new (id, venue_id, name, slug, status, next_sequence, created_at, updated_at)
-        SELECT id, venue_id, name, slug, status, next_sequence, created_at, updated_at FROM queue;
+        INSERT INTO queue__new (id, venue_id, name, slug, status, next_sequence, coin_cost, created_at, updated_at)
+        SELECT id, venue_id, name, slug, status, next_sequence,
+               ${coinCostExpr}, created_at, updated_at
+        FROM queue;
 
         CREATE TABLE queue_entry__new (
           id TEXT PRIMARY KEY,
@@ -220,16 +306,20 @@ function removeOnSiteCallArtifacts(db: Db) {
           playing_at TEXT,
           finished_at TEXT,
           cancelled_at TEXT,
+          head_eligible_at TEXT,
+          head_miss_count INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           UNIQUE(queue_id, sequence_number)
         );
         INSERT INTO queue_entry__new
           (id, queue_id, user_id, party_id, play_mode, sequence_number, status, version,
-           joined_at, playing_at, finished_at, cancelled_at, created_at, updated_at)
+           joined_at, playing_at, finished_at, cancelled_at, head_eligible_at, head_miss_count,
+           created_at, updated_at)
         SELECT id, queue_id, user_id, party_id, play_mode, sequence_number,
                CASE WHEN status IN ('WAITING','PLAYING','DONE','CANCELLED','EXPIRED') THEN status ELSE 'WAITING' END,
-               version, joined_at, playing_at, finished_at, cancelled_at, created_at, updated_at
+               version, joined_at, playing_at, finished_at, cancelled_at,
+               ${headEligibleExpr}, ${headMissExpr}, created_at, updated_at
         FROM queue_entry;
 
         DROP INDEX IF EXISTS one_active_entry_per_user;

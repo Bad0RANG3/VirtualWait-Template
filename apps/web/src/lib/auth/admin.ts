@@ -30,7 +30,7 @@ export async function setAdminSession() {
   jar.set(COOKIE, encode({ role: "admin", exp: Date.now() + MAX_AGE_SEC * 1000 }), {
     httpOnly: true,
     sameSite: "strict",
-    secure: process.env.NODE_ENV === "production",
+    secure: env.secureCookies,
     path: "/",
     maxAge: MAX_AGE_SEC,
   });

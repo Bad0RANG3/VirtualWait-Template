@@ -66,8 +66,12 @@ export interface QueueEntryView {
   playMode: PlayMode;
   joinedAt: string;
   playingAt: string | null;
+  headConfirmDeadlineAt: string | null;
+  headMissCount: number;
   profile: PublicProfile;
   isMine: boolean;
+  /** True when this user may self-confirm onto a free machine. */
+  canConfirmStart: boolean;
   party: PartyView | null;
 }
 
@@ -81,16 +85,30 @@ export interface QueueSlotView {
   party: PartyView | null;
   entries: QueueEntryView[];
   isMine: boolean;
+  canConfirmStart: boolean;
 }
 
 export interface PublicQueueSnapshot {
-  venue: { id: string; name: string; slug: string };
+  venue: {
+    id: string;
+    name: string;
+    slug: string;
+    address?: string;
+    regionName?: string;
+    regionKind?: string;
+    machineCount?: number;
+    openMinute?: number;
+    closeMinute?: number;
+    hoursLabel?: string;
+  };
   queue: {
     id: string;
     name: string;
     slug: string;
     status: QueueStatus;
     playingTimeoutSec: number;
+    headConfirmTimeoutSec: number;
+    coinCost: number;
     updatedAt: string;
   };
   now: string;

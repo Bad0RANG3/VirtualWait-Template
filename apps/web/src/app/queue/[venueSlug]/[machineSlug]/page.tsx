@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { QueueBoard } from "@/components/QueueBoard";
 import { getSessionUser } from "@/lib/auth/session";
-import { machineBySlug, VENUE } from "@/lib/constants/venue";
+import { machineBySlug, venueBySlug } from "@/lib/constants/catalog";
 import { getPublicQueue } from "@/lib/queue/service";
 
 export default async function QueuePage({
@@ -10,8 +10,9 @@ export default async function QueuePage({
   params: Promise<{ venueSlug: string; machineSlug: string }>;
 }) {
   const { venueSlug, machineSlug } = await params;
-  if (venueSlug !== VENUE.slug) notFound();
-  const machine = machineBySlug(machineSlug);
+  const venue = venueBySlug(venueSlug);
+  if (!venue) notFound();
+  const machine = machineBySlug(venueSlug, machineSlug);
   if (!machine) notFound();
 
   const user = await getSessionUser();

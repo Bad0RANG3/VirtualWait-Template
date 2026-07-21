@@ -165,12 +165,13 @@ export async function POST(req: Request) {
     }
 
     if (result.status === "FAILED") {
+      const errorCode = result.errorCode || "GATEWAY_FAILED";
       db.prepare(
         `UPDATE join_attempt
          SET status = 'FAILED', error_code = ?, updated_at = ?
          WHERE id = ?`
-      ).run(result.errorCode || "GATEWAY_FAILED", now, attemptId);
-      return mapServiceError(new Error("GATEWAY_FAILED"));
+      ).run(errorCode, now, attemptId);
+      return mapServiceError(new Error(errorCode));
     }
 
     return jsonOk({ attemptId, status: "PROCESSING" });

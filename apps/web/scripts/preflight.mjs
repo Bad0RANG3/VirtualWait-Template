@@ -11,6 +11,16 @@ function unsafeProductionSecret(value) {
   return !value || value.length < 32 || unsafeSecretPatterns.some((pattern) => pattern.test(value));
 }
 
+function validAppUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.username || url.password) return false;
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function validGatewayUrl(value) {
   try {
     const url = new URL(value);
@@ -39,10 +49,8 @@ if (production) {
   if (process.env.TRUST_PROXY_HEADERS !== "true") {
     failures.push("TRUST_PROXY_HEADERS must be true behind a sanitizing reverse proxy");
   }
-  try {
-    if (new URL(process.env.APP_BASE_URL).protocol !== "https:") throw new Error();
-  } catch {
-    failures.push("APP_BASE_URL must be an HTTPS URL");
+  if (!validAppUrl(process.env.APP_BASE_URL)) {
+    failures.push("APP_BASE_URL must be an HTTP or HTTPS URL without credentials");
   }
   if (!validGatewayUrl(process.env.GATEWAY_BASE_URL)) {
     failures.push("GATEWAY_BASE_URL must be HTTPS or unauthenticated loopback HTTP (127.0.0.1/[::1])");

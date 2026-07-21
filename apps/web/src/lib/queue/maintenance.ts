@@ -7,7 +7,6 @@ import { processTimeouts } from "./service";
 export type MaintenanceResult = {
   queuesProcessed: number;
   expiredAttemptsDeleted: number;
-  expiredMockJobsDeleted: number;
   expiredRateLimitBucketsDeleted: number;
   staleSlotsDeleted: number;
   expiredIpDayBindingsDeleted: number;
@@ -141,9 +140,15 @@ export function runMaintenance(now = nowIso()): MaintenanceResult {
        WHERE expires_at < ? AND status IN ('SUCCEEDED', 'FAILED', 'EXPIRED')`,
     )
     .run(transientCutoff) as SqlRunResult;
-  const mockJobs = db
-    .prepare(`DELETE FROM gateway_job_mock WHERE expires_at < ?`)
-    .run(transientCutoff) as SqlRunResult;
+  // Legacy local mock-job rows may still exist from older Web builds that
+  // short-circuited verification in-process. Drop them when present.
+  try {
+    db.prepare(`DELETE FROM gateway_job_mock WHERE expires_at < ?`).run(
+      transientCutoff,
+    );
+  } catch {
+    // Table absent on fresh installs that never used the in-process mock.
+  }
   const rateLimitBuckets = cleanupOldRateLimitBuckets(
     nowMs - env.rateLimitBucketRetentionSec * 1000,
   );
@@ -172,7 +177,6 @@ export function runMaintenance(now = nowIso()): MaintenanceResult {
   return {
     queuesProcessed: queues.length,
     expiredAttemptsDeleted: attempts.changes ?? 0,
-    expiredMockJobsDeleted: mockJobs.changes ?? 0,
     expiredRateLimitBucketsDeleted: rateLimitBuckets,
     staleSlotsDeleted: slots.changes ?? 0,
     expiredIpDayBindingsDeleted: ipDayBindings.changes ?? 0,

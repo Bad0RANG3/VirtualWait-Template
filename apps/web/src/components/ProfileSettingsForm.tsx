@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { SessionUser } from "@/lib/types";
-import { Eye, EyeOff, Save } from "lucide-react";
+import { Save } from "lucide-react";
 
 export function ProfileSettingsForm({ user }: { user: SessionUser }) {
   const router = useRouter();
@@ -45,16 +45,11 @@ export function ProfileSettingsForm({ user }: { user: SessionUser }) {
   const canSave = (nicknameChanged || ratingChanged) && nickname.trim().length >= 2;
 
   return (
-    <form onSubmit={onSubmit} className="panel space-y-5 p-6 sm:p-7">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="section-label">PROFILE</div>
-          <h2 className="mt-3 font-display text-2xl font-semibold text-ink-900">
-            公开资料
-          </h2>
-        </div>
+    <form onSubmit={onSubmit} className="panel space-y-4 p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-ink-900">资料</h2>
         {user.bound && typeof user.rating === "number" && (
-          <span className="chip bg-ink-50 text-ink-700">Rating {user.rating}</span>
+          <span className="chip bg-ink-50 text-ink-700">R{user.rating}</span>
         )}
       </div>
 
@@ -72,37 +67,28 @@ export function ProfileSettingsForm({ user }: { user: SessionUser }) {
         />
       </div>
 
-      <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-ink-100 bg-ink-50/60 px-4 py-3">
-        <span className="flex min-w-0 items-center gap-3">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-ink-700">
-            {showRatingPublic ? (
-              <Eye className="h-4 w-4" />
-            ) : (
-              <EyeOff className="h-4 w-4" />
-            )}
-          </span>
-          <span className="min-w-0">
-            <span className="block font-medium text-ink-900">展示 Rating</span>
-            <span className="block text-sm text-ink-500">
-              {showRatingPublic ? "队列中可见" : "队列中隐藏"}
-            </span>
+      <label className="flex cursor-pointer items-center justify-between gap-3 rounded-md border border-ink-200 bg-ink-50/60 px-3 py-2.5">
+        <span className="text-sm text-ink-800">
+          展示 Rating
+          <span className="ml-2 text-ink-500">
+            {showRatingPublic ? "可见" : "隐藏"}
           </span>
         </span>
         <input
           type="checkbox"
-          className="h-5 w-5 rounded border-ink-300 text-mint-600 focus:ring-mint-300"
+          className="h-4 w-4 rounded border-ink-300 text-mint-600 focus:ring-mint-300"
           checked={showRatingPublic}
           onChange={(e) => setShowRatingPublic(e.target.checked)}
         />
       </label>
 
       {error && (
-        <div className="rounded-xl border border-coral-200 bg-coral-50 px-3 py-2 text-sm text-coral-600">
+        <div className="rounded-md border border-coral-200 bg-coral-50 px-3 py-2 text-sm text-coral-600">
           {error}
         </div>
       )}
       {ok && (
-        <div className="rounded-xl border border-mint-200 bg-mint-50 px-3 py-2 text-sm text-mint-700">
+        <div className="rounded-md border border-mint-200 bg-mint-50 px-3 py-2 text-sm text-mint-700">
           {ok}
         </div>
       )}

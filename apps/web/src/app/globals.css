@@ -4,14 +4,13 @@
 
 :root {
   color-scheme: light;
-  --bg0: #f6faf8;
-  --bg1: #eef6f3;
-  --ink: #1f2933;
-  --muted: #6a849c;
-  --line: rgba(31, 41, 51, 0.08);
-  --mint: #22ad84;
-  --coral: #f85d48;
-  --sun: #f0ad2e;
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --ink: #1a1d21;
+  --muted: #5c6670;
+  --line: #e4e7eb;
+  --mint: #0f9f75;
+  --coral: #e24b3b;
 }
 
 * {
@@ -23,10 +22,7 @@ body {
   margin: 0;
   min-height: 100%;
   color: var(--ink);
-  background:
-    radial-gradient(900px 420px at 12% -8%, rgba(34, 173, 132, 0.12), transparent 58%),
-    radial-gradient(780px 360px at 100% 0%, rgba(74, 147, 245, 0.08), transparent 52%),
-    linear-gradient(180deg, #f8fbfa 0%, #f3f8f6 45%, #f7faf8 100%);
+  background: var(--bg);
 }
 
 body {
@@ -45,61 +41,69 @@ textarea {
 }
 
 ::selection {
-  background: rgba(34, 173, 132, 0.22);
-}
-
-.panel {
-  @apply rounded-2xl border border-ink-100 bg-white/90 shadow-panel backdrop-blur-sm;
-}
-
-.panel-soft {
-  @apply rounded-2xl border border-ink-100 bg-white/70;
-}
-
-.btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold tracking-wide transition active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45;
-}
-
-.btn-primary {
-  @apply btn bg-ink-900 text-white hover:bg-ink-800;
-}
-
-.btn-mint {
-  @apply btn bg-mint-500 text-white hover:bg-mint-600;
-}
-
-.btn-coral {
-  @apply btn bg-coral-500 text-white hover:bg-coral-600;
-}
-
-.btn-ghost {
-  @apply btn border border-ink-200 bg-white text-ink-700 hover:bg-ink-50;
-}
-
-.field {
-  @apply w-full rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-ink-900 outline-none placeholder:text-ink-400 focus:border-mint-400 focus:ring-2 focus:ring-mint-200;
-}
-
-.label {
-  @apply mb-1.5 block text-sm font-medium text-ink-700;
-}
-
-.chip {
-  @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold tracking-wide;
-}
-
-.section-label {
-  @apply chip border border-ink-100 bg-ink-50 text-ink-600;
-}
-
-.stat-tile {
-  @apply rounded-2xl border border-ink-100 bg-white/80 px-4 py-3;
+  background: rgba(15, 159, 117, 0.18);
 }
 
 .page-wrap {
-  @apply mx-auto w-full max-w-6xl px-4 sm:px-6;
+  @apply mx-auto w-full max-w-5xl px-4 sm:px-5;
+}
+
+.panel {
+  @apply rounded-lg border border-ink-200 bg-white shadow-none;
+}
+
+.panel-soft {
+  @apply rounded-lg border border-ink-200 bg-white;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-md px-3.5 py-2 text-sm font-medium transition disabled:pointer-events-none disabled:opacity-45;
+}
+
+.btn-primary {
+  @apply btn bg-ink-950 text-white hover:bg-ink-800;
+}
+
+.btn-mint {
+  @apply btn bg-mint-600 text-white hover:bg-mint-700;
+}
+
+.btn-coral {
+  @apply btn bg-coral-600 text-white hover:bg-coral-700;
+}
+
+.btn-ghost {
+  @apply btn border border-ink-200 bg-white text-ink-800 hover:bg-ink-50;
+}
+
+.field {
+  @apply w-full rounded-md border border-ink-200 bg-white px-3 py-2 text-ink-900 outline-none placeholder:text-ink-400 focus:border-mint-500 focus:ring-2 focus:ring-mint-100;
+}
+
+.label {
+  @apply mb-1 block text-sm font-medium text-ink-700;
+}
+
+.chip {
+  @apply inline-flex items-center rounded px-2 py-0.5 text-xs font-medium;
+}
+
+.section-label {
+  @apply chip border border-ink-200 bg-ink-50 text-ink-600;
+}
+
+.stat-tile {
+  @apply rounded-lg border border-ink-200 bg-white px-3 py-2.5;
 }
 
 .muted {
   @apply text-ink-500;
+}
+
+.list-row {
+  @apply flex items-center justify-between gap-3 border-b border-ink-100 px-3 py-3 last:border-b-0;
+}
+
+.surface-muted {
+  @apply rounded-md border border-ink-100 bg-ink-50/80;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 export function QrLoginForm({
@@ -12,12 +12,6 @@ export function QrLoginForm({
   const [qrCode, setQrCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const hint = useMemo(
-    () =>
-      "开发模式可用 mock:用户ID:昵称:Rating:称号，例如 mock:demo-user:示例玩家:12000:示例称号",
-    []
-  );
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -34,8 +28,6 @@ export function QrLoginForm({
         throw new Error(data?.error?.message || "登录失败");
       }
       let current = data;
-      // A remote Gateway may need to finish logout before reporting success.
-      // Poll the opaque attempt id rather than ever submitting the QR again.
       for (let i = 0; current.status === "PROCESSING" && i < 30; i += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 2_000));
         const poll = await fetch(`/api/auth/attempts/${encodeURIComponent(current.attemptId)}`, {
@@ -59,35 +51,27 @@ export function QrLoginForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="panel space-y-5 p-6 sm:p-7">
-      <div>
-        <div className="section-label">MAIMAI QR</div>
-        <h1 className="mt-3 font-display text-3xl font-semibold text-ink-900">
-          舞萌二维码登录
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-ink-500">
-          使用机台/App 上的一次性二维码登录。系统用 userid 识别身份，本机会话保存至当天
-          0:00（北京时间）自动失效。同一网络地址当天只能绑定一个账号。
-        </p>
-      </div>
+    <form onSubmit={onSubmit} className="panel space-y-4 p-4 sm:p-5">
+      <h1 className="font-display text-2xl font-semibold text-ink-950">
+        扫码登录
+      </h1>
 
       <div>
         <label className="label" htmlFor="qr-login">
-          二维码内容
+          二维码
         </label>
         <textarea
           id="qr-login"
-          className="field min-h-32 font-mono text-sm"
-          placeholder="粘贴二维码解析结果…"
+          className="field min-h-28 font-mono text-sm"
+          placeholder="粘贴二维码…"
           value={qrCode}
           onChange={(e) => setQrCode(e.target.value)}
           required
         />
-        <p className="mt-2 text-xs leading-relaxed text-ink-400">{hint}</p>
       </div>
 
       {error && (
-        <div className="rounded-xl border border-coral-200 bg-coral-50 px-3 py-2 text-sm text-coral-600">
+        <div className="rounded-md border border-coral-200 bg-coral-50 px-3 py-2 text-sm text-coral-600">
           {error}
         </div>
       )}

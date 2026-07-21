@@ -121,6 +121,8 @@ try {
       VW_GATEWAY_ENV: "test",
       VW_GATEWAY_PORT: String(gatewayPort),
       VW_GATEWAY_DATABASE_PATH: path.join(tempDirectory, "gateway.db"),
+      VW_GATEWAY_PROVIDER: "mock",
+      VW_GATEWAY_KEY_ID: "dev-web-1",
       VW_GATEWAY_SHARED_SECRET: sharedSecret,
       VW_PUBLIC_ID_HMAC_SECRET: publicIdSecret,
     },

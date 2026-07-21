@@ -16,8 +16,8 @@ const body = IBM_Plex_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "VirtualWait Template",
-  description: "可定制的虚拟排队 Web 模板",
+  title: "VirtualWait",
+  description: "VirtualWait",
 };
 
 export default async function RootLayout({

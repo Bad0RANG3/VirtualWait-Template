@@ -49,16 +49,25 @@ function requireProductionSecret(
   }
 }
 
-function requireProductionUrl(name: string, value: string) {
-  if (process.env.NODE_ENV !== "production") return;
-  let url: URL;
+function parseAppBaseUrl(value: string): URL | null {
   try {
-    url = new URL(value);
+    const url = new URL(value);
+    if (url.username || url.password) return null;
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url;
   } catch {
-    throw new Error(`${name} must be a valid HTTPS URL in production`);
+    return null;
   }
-  if (url.protocol !== "https:") {
-    throw new Error(`${name} must use HTTPS in production`);
+}
+
+export function isValidAppBaseUrl(value: string) {
+  return parseAppBaseUrl(value) !== null;
+}
+
+function requireProductionAppUrl(name: string, value: string) {
+  if (process.env.NODE_ENV !== "production") return;
+  if (!isValidAppBaseUrl(value)) {
+    throw new Error(`${name} must be a valid HTTP or HTTPS URL in production`);
   }
 }
 
@@ -86,7 +95,16 @@ function requireProductionGatewayUrl(value: string) {
   );
 }
 
-const gatewayMode = (process.env.GATEWAY_MODE || "mock") as "mock" | "remote";
+const rawGatewayMode = process.env.GATEWAY_MODE || "remote";
+if (rawGatewayMode === "mock") {
+  throw new Error(
+    "GATEWAY_MODE=mock is no longer supported. Run services/sdgb-gateway with VW_GATEWAY_PROVIDER=mock and set GATEWAY_MODE=remote so Web uses the signed login interface.",
+  );
+}
+if (rawGatewayMode !== "remote") {
+  throw new Error('GATEWAY_MODE must be "remote"');
+}
+const gatewayMode = "remote" as const;
 const sessionSecret = str("SESSION_SECRET", DEV_SESSION_SECRET);
 const publicIdHmacSecret = str("PUBLIC_ID_HMAC_SECRET", DEV_PUBLIC_ID_SECRET);
 const gatewaySharedSecret = str("GATEWAY_SHARED_SECRET", DEV_GATEWAY_SECRET);
@@ -97,6 +115,7 @@ const trustProxyHeaders = bool(
   "TRUST_PROXY_HEADERS",
   process.env.NODE_ENV !== "production",
 );
+const sessionMaxAgeDays = num("SESSION_MAX_AGE_DAYS", 30);
 
 requireProductionSecret("SESSION_SECRET", sessionSecret, DEV_SESSION_SECRET);
 requireProductionSecret(
@@ -120,7 +139,7 @@ if (
     "ADMIN_API_TOKEN must be set to a unique non-placeholder value with at least 32 characters in production",
   );
 }
-requireProductionUrl("APP_BASE_URL", appBaseUrl);
+requireProductionAppUrl("APP_BASE_URL", appBaseUrl);
 if (process.env.NODE_ENV === "production") {
   if (!trustProxyHeaders) {
     throw new Error(
@@ -132,14 +151,18 @@ if (process.env.NODE_ENV === "production") {
 
 export const env = {
   sessionSecret,
+  /** Persistent user session lifetime in days. */
+  sessionMaxAgeDays,
   publicIdHmacSecret,
   gatewayMode,
   gatewayBaseUrl,
-  gatewayKeyId: process.env.GATEWAY_KEY_ID || "dev-web-1",
+  gatewayKeyId: process.env.GATEWAY_KEY_ID || "template-web-1",
   gatewaySharedSecret,
   adminApiToken,
   trustProxyHeaders,
   playingTimeoutSec: num("PLAYING_TIMEOUT_SEC", 1500),
+  /** Seconds the head group has to confirm onto a free machine. */
+  headConfirmTimeoutSec: num("HEAD_CONFIRM_TIMEOUT_SEC", 180),
   /** Max concurrent maimai QR verifications (anti-abuse). */
   qrMaxConcurrent: num("QR_MAX_CONCURRENT", 3),
   /** Max QR login attempts per IP per window. */
@@ -167,6 +190,8 @@ export const env = {
   auditEventRetentionDays: num("AUDIT_EVENT_RETENTION_DAYS", 365),
   /** Remote gateway fetch timeout. */
   gatewayTimeoutMs: num("GATEWAY_TIMEOUT_MS", 15_000),
-  /** 站点对外 origin，例如 https://wait.example.com */
+  /** 站点对外 origin，例如 https://wait.example.com 或 http://wait.example.com */
   appBaseUrl,
+  /** Whether auth cookies should require HTTPS transport. */
+  secureCookies: parseAppBaseUrl(appBaseUrl)?.protocol === "https:",
 };

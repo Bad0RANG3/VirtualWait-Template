@@ -12,6 +12,8 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Playwright and some local tooling hit the dev server via 127.0.0.1.
+  allowedDevOrigins: ["127.0.0.1"],
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

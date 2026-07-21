@@ -102,7 +102,7 @@ export async function POST(req: Request) {
     }
 
     if (result.status === "FAILED") {
-      return mapServiceError(new Error("GATEWAY_FAILED"));
+      return mapServiceError(new Error(result.errorCode || "GATEWAY_FAILED"));
     }
 
     return jsonOk({ attemptId, status: "PROCESSING" });

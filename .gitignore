@@ -38,3 +38,7 @@
 
 # Platform local state
 .vercel/
+
+# Python packaging leftovers
+**/build/
+**/*.egg-info/

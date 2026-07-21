@@ -1,19 +1,15 @@
 import { cookies } from "next/headers";
 import { getDb, nowIso } from "../db";
+import { env } from "../env";
 import { randomToken, safeEqual, signPayload } from "../crypto";
 import type { SessionUser } from "../types";
-import {
-  nextShanghaiMidnightMs,
-  secondsUntilShanghaiMidnight,
-  shanghaiDayKey,
-} from "./time";
-
 const COOKIE = "vw_session";
+const SESSION_MAX_AGE_SECONDS_PER_DAY = 24 * 60 * 60;
 
 type SessionPayload = {
   uid: string;
-  /** Shanghai calendar day this session is valid for (YYYY-MM-DD). */
-  day: string;
+  /** Legacy field from the old midnight-expiring session format. */
+  day?: string;
   /** Bound client IP hash at login time. */
   ip: string;
   exp: number;
@@ -43,16 +39,15 @@ function decodeSession(token: string | undefined): SessionPayload | null {
       payload.uid.length > 128 ||
       typeof payload.exp !== "number" ||
       !Number.isSafeInteger(payload.exp) ||
-      typeof payload.day !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(payload.day) ||
+      (payload.day !== undefined &&
+        (typeof payload.day !== "string" ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(payload.day))) ||
       typeof payload.ip !== "string" ||
       !(/^[a-f0-9]{64}$/.test(payload.ip) || payload.ip === "unknown")
     ) {
       return null;
     }
     if (payload.exp < Date.now()) return null;
-    // Auto-invalidate after Shanghai 00:00 even if maxAge was longer.
-    if (payload.day !== shanghaiDayKey()) return null;
     return payload;
   } catch {
     return null;
@@ -61,18 +56,17 @@ function decodeSession(token: string | undefined): SessionPayload | null {
 
 export async function setSession(userId: string, ipHash: string) {
   const jar = await cookies();
-  const exp = nextShanghaiMidnightMs();
-  const maxAge = secondsUntilShanghaiMidnight();
+  const maxAge = env.sessionMaxAgeDays * SESSION_MAX_AGE_SECONDS_PER_DAY;
+  const exp = Date.now() + maxAge * 1000;
   const token = encodeSession({
     uid: userId,
-    day: shanghaiDayKey(),
     ip: ipHash || "unknown",
     exp,
   });
   jar.set(COOKIE, token, {
     httpOnly: true,
     sameSite: "strict",
-    secure: process.env.NODE_ENV === "production",
+    secure: env.secureCookies,
     path: "/",
     maxAge,
   });

@@ -7,7 +7,19 @@ CREATE TABLE IF NOT EXISTS venue (
   slug TEXT NOT NULL UNIQUE,
   timezone TEXT NOT NULL,
   is_active INTEGER NOT NULL DEFAULT 1,
+  address TEXT,
+  region_name TEXT,
+  region_kind TEXT,
+  machine_count INTEGER,
+  open_minute INTEGER,
+  close_minute INTEGER,
   created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 
@@ -18,6 +30,7 @@ CREATE TABLE IF NOT EXISTS queue (
   slug TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('OPEN','PAUSED','CLOSED')),
   next_sequence INTEGER NOT NULL DEFAULT 1,
+  coin_cost INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE(venue_id, slug)
@@ -72,6 +85,8 @@ CREATE TABLE IF NOT EXISTS queue_entry (
   playing_at TEXT,
   finished_at TEXT,
   cancelled_at TEXT,
+  head_eligible_at TEXT,
+  head_miss_count INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE(queue_id, sequence_number)
@@ -109,16 +124,6 @@ CREATE TABLE IF NOT EXISTS audit_event (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS gateway_job_mock (
-  id TEXT PRIMARY KEY,
-  status TEXT NOT NULL,
-  public_result TEXT,
-  error_code TEXT,
-  expires_at TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS ip_day_binding (
   ip_hash TEXT NOT NULL,
   day_key TEXT NOT NULL,
@@ -152,4 +157,18 @@ export const MIGRATIONS_SQL = [
   `ALTER TABLE app_user ADD COLUMN last_login_day TEXT`,
   `ALTER TABLE app_user ADD COLUMN show_rating_public INTEGER NOT NULL DEFAULT 1`,
   `ALTER TABLE join_attempt ADD COLUMN request_ip_hash TEXT`,
+  `ALTER TABLE queue_entry ADD COLUMN head_eligible_at TEXT`,
+  `ALTER TABLE queue_entry ADD COLUMN head_miss_count INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE venue ADD COLUMN address TEXT`,
+  `ALTER TABLE venue ADD COLUMN region_name TEXT`,
+  `ALTER TABLE venue ADD COLUMN region_kind TEXT`,
+  `ALTER TABLE venue ADD COLUMN machine_count INTEGER`,
+  `ALTER TABLE queue ADD COLUMN coin_cost INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE venue ADD COLUMN open_minute INTEGER`,
+  `ALTER TABLE venue ADD COLUMN close_minute INTEGER`,
+  `CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
 ];

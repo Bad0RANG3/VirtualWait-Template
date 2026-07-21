@@ -29,7 +29,7 @@ export async function GET(
     const db = getDb();
     const attempt = db
       .prepare(
-        `SELECT id, status, gateway_job_id, user_id, request_ip_hash, expires_at
+        `SELECT id, status, gateway_job_id, user_id, request_ip_hash, expires_at, error_code
          FROM join_attempt WHERE id = ? AND purpose = 'LOGIN_BIND'`
       )
       .get(attemptId) as
@@ -40,6 +40,7 @@ export async function GET(
           user_id: string | null;
           request_ip_hash: string | null;
           expires_at: string;
+          error_code: string | null;
         }
       | undefined;
     if (!attempt || attempt.request_ip_hash !== ipHash) {
@@ -56,7 +57,7 @@ export async function GET(
       return jsonOk({ attemptId, status: "SUCCEEDED", user: loginAttemptUser(attempt.user_id) });
     }
     if (attempt.status === "FAILED" || !attempt.gateway_job_id) {
-      return mapServiceError(new Error("GATEWAY_FAILED"));
+      return mapServiceError(new Error(attempt.error_code || "GATEWAY_FAILED"));
     }
 
     const resolved = await resolveLoginAttempt(attempt.id, attempt.gateway_job_id, ipHash);
@@ -64,7 +65,9 @@ export async function GET(
       await setSession(resolved.userId, ipHash);
       return jsonOk({ attemptId, status: "SUCCEEDED", user: loginAttemptUser(resolved.userId) });
     }
-    if (resolved.status === "FAILED") return mapServiceError(new Error("GATEWAY_FAILED"));
+    if (resolved.status === "FAILED") {
+      return mapServiceError(new Error(resolved.errorCode || "GATEWAY_FAILED"));
+    }
     return jsonOk({ attemptId, status: "PROCESSING" });
   } catch (err) {
     if (err instanceof z.ZodError) return jsonError("INVALID_REQUEST", "参数无效");

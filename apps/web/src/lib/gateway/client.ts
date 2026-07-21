@@ -4,11 +4,16 @@ import {
   gatewayCreateJobResponseSchema,
   gatewayVerificationResponseSchema,
 } from "./contracts";
-import {
-  createMockVerificationJob,
-  getMockVerificationJob,
-  type VerificationResult,
-} from "./mock";
+import type { PublicProfile } from "../types";
+
+export type VerificationResult =
+  | {
+      status: "SUCCEEDED";
+      identityHash: string;
+      profile: PublicProfile;
+    }
+  | { status: "FAILED"; errorCode?: string }
+  | { status: "PROCESSING" };
 
 const MAX_GATEWAY_RESPONSE_BYTES = 32 * 1024;
 
@@ -79,11 +84,8 @@ async function readGatewayJson(res: Response): Promise<unknown> {
 }
 
 export async function createVerificationJob(qrCode: string): Promise<string> {
-  if (env.gatewayMode === "mock") {
-    return createMockVerificationJob(qrCode);
-  }
-
-  // Remote gateway wiring placeholder — production uses HMAC + tunnel.
+  // Always call the signed Gateway. Offline fixtures live in the Gateway
+  // mock provider (`mock:*` QR values), never as an in-process Web shortcut.
   const url = new URL("/v1/verification-jobs", env.gatewayBaseUrl);
   const body = JSON.stringify({
     qrCode,
@@ -114,10 +116,6 @@ export async function createVerificationJob(qrCode: string): Promise<string> {
 export async function getVerificationJob(
   jobId: string
 ): Promise<VerificationResult> {
-  if (env.gatewayMode === "mock") {
-    return getMockVerificationJob(jobId);
-  }
-
   const url = new URL(
     `/v1/verification-jobs/${encodeURIComponent(jobId)}`,
     env.gatewayBaseUrl

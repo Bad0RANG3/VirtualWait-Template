@@ -11,7 +11,13 @@ from urllib.parse import urlsplit
 
 from .config import Settings
 from .contracts import ContractError, create_job_response, error_response, parse_create_job
-from .provider import MockVerificationProvider
+from .provider import (
+    HttpVerificationProvider,
+    MockVerificationProvider,
+    SdgbPreviewVerificationProvider,
+    VerificationProvider,
+)
+from .sdgb_preview import SdgbPreviewSettings
 from .repository import Repository
 from .security import AuthenticationError, verify_signed_request
 from .service import VerificationService
@@ -21,15 +27,46 @@ MAX_BODY_BYTES = 4 * 1024
 JOB_PATH = re.compile(r"^/v1/verification-jobs/([^/]+)$")
 
 
+def create_provider(settings: Settings) -> VerificationProvider:
+    if settings.provider == "mock":
+        return MockVerificationProvider(settings.public_id_hmac_secret)
+    if settings.provider == "http" and settings.http_verify_url:
+        return HttpVerificationProvider(
+            settings.http_verify_url,
+            settings.public_id_hmac_secret,
+            settings.http_auth_header,
+            settings.http_auth_value,
+            settings.http_timeout_sec,
+        )
+    if (
+        settings.provider == "sdgb_preview"
+        and settings.sdgb_aime_url
+        and settings.sdgb_title_server_url
+    ):
+        return SdgbPreviewVerificationProvider(
+            SdgbPreviewSettings(
+                aime_url=settings.sdgb_aime_url,
+                title_server_url=settings.sdgb_title_server_url,
+                aime_salt=settings.sdgb_aime_salt,
+                aes_key=settings.sdgb_aes_key,
+                aes_iv=settings.sdgb_aes_iv,
+                obfuscate_param=settings.sdgb_obfuscate_param,
+                keychip_id=settings.sdgb_keychip_id,
+                client_id=settings.sdgb_client_id,
+                timeout_sec=settings.sdgb_timeout_sec,
+            ),
+            settings.public_id_hmac_secret,
+        )
+    raise ValueError("Unsupported Gateway provider configuration")
+
+
 class GatewayApplication:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.repository = Repository(settings.database_path)
-        self.service = VerificationService(
-            self.repository, MockVerificationProvider(settings.public_id_hmac_secret)
-        )
-        # Recovery runs before accepting new jobs. The mock path exercises the
-        # state machine; a real provider must retry a securely stored logout.
+        self.service = VerificationService(self.repository, create_provider(settings))
+        # Recovery runs before accepting new jobs. Provider implementations must
+        # keep any recoverable state encrypted and never persist raw QR values.
         self.service.recover_pending_logouts()
         self.verification_slots = BoundedSemaphore(settings.max_concurrent)
 

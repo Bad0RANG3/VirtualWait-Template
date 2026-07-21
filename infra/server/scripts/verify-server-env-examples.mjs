@@ -42,6 +42,7 @@ function forbidDevDefaults(name, env) {
 const webStaging = parseEnvExample("web.staging.env.example");
 const gatewayStaging = parseEnvExample("gateway.staging.env.example");
 const webProduction = parseEnvExample("web.production.env.example");
+const gatewayProduction = parseEnvExample("gateway.production.env.example");
 
 const webKeys = [
   "NODE_ENV",
@@ -49,6 +50,7 @@ const webKeys = [
   "VIRTUALWAIT_DATA_DIR",
   "VIRTUALWAIT_BACKUP_DIR",
   "SESSION_SECRET",
+  "SESSION_MAX_AGE_DAYS",
   "PUBLIC_ID_HMAC_SECRET",
   "ADMIN_API_TOKEN",
   "GATEWAY_MODE",
@@ -63,7 +65,7 @@ const webKeys = [
 ];
 requireKeys("web.staging.env.example", webStaging, webKeys);
 requireKeys("web.production.env.example", webProduction, webKeys);
-requireKeys("gateway.staging.env.example", gatewayStaging, [
+const gatewayKeys = [
   "VW_GATEWAY_ENV",
   "VW_GATEWAY_HOST",
   "VW_GATEWAY_PORT",
@@ -72,17 +74,27 @@ requireKeys("gateway.staging.env.example", gatewayStaging, [
   "VW_GATEWAY_SHARED_SECRET",
   "VW_PUBLIC_ID_HMAC_SECRET",
   "VW_GATEWAY_PROVIDER",
+];
+requireKeys("gateway.staging.env.example", gatewayStaging, gatewayKeys);
+requireKeys("gateway.production.env.example", gatewayProduction, [
+  ...gatewayKeys,
+  "VW_GATEWAY_HTTP_VERIFY_URL",
+  "VW_GATEWAY_HTTP_AUTH_HEADER",
+  "VW_GATEWAY_HTTP_AUTH_VALUE",
+  "VW_GATEWAY_HTTP_TIMEOUT_SEC",
 ]);
 
 forbidDevDefaults("web.staging.env.example", webStaging);
 forbidDevDefaults("gateway.staging.env.example", gatewayStaging);
 forbidDevDefaults("web.production.env.example", webProduction);
+forbidDevDefaults("gateway.production.env.example", gatewayProduction);
 
 for (const env of [webStaging, webProduction]) {
   assert.equal(env.NODE_ENV, "production", "Web examples must exercise the production build/runtime path");
   assert.equal(env.GATEWAY_MODE, "remote", "Web examples must use the signed remote Gateway contract");
   assert.equal(env.TRUST_PROXY_HEADERS, "true", "Web examples must require sanitized proxy headers");
-  assert.match(env.APP_BASE_URL, /^https:\/\//, "APP_BASE_URL must be HTTPS");
+  assert.ok(Number(env.SESSION_MAX_AGE_DAYS) > 0, "SESSION_MAX_AGE_DAYS must be a positive number of days");
+  assert.match(env.APP_BASE_URL, /^https?:\/\//, "APP_BASE_URL must be HTTP or HTTPS");
   assert.match(
     env.GATEWAY_BASE_URL,
     /^https:\/\/|^http:\/\/127\.0\.0\.1:8787$/,
@@ -95,9 +107,23 @@ for (const env of [webStaging, webProduction]) {
 
 assert.equal(gatewayStaging.VW_GATEWAY_ENV, "test", "staging Gateway must stay in mock/test mode");
 assert.equal(gatewayStaging.VW_GATEWAY_HOST, "127.0.0.1", "Gateway must bind only to loopback");
-assert.equal(gatewayStaging.VW_GATEWAY_PROVIDER, "mock", "only the mock provider is implemented for staging");
+assert.equal(gatewayStaging.VW_GATEWAY_PROVIDER, "mock", "staging Gateway must use mock provider");
 requirePlaceholder("gateway.staging.env.example", gatewayStaging, "VW_GATEWAY_SHARED_SECRET");
 requirePlaceholder("gateway.staging.env.example", gatewayStaging, "VW_PUBLIC_ID_HMAC_SECRET");
+
+assert.equal(gatewayProduction.VW_GATEWAY_ENV, "production", "production Gateway must run production checks");
+assert.equal(gatewayProduction.VW_GATEWAY_HOST, "127.0.0.1", "production Gateway must bind only to loopback");
+assert.equal(gatewayProduction.VW_GATEWAY_PROVIDER, "http", "production Gateway must use the real HTTP provider adapter");
+assert.match(gatewayProduction.VW_GATEWAY_HTTP_VERIFY_URL, /^https:\/\//, "production verifier URL must use HTTPS");
+assert.equal(gatewayProduction.VW_GATEWAY_HTTP_AUTH_HEADER, "Authorization");
+assert.ok(Number(gatewayProduction.VW_GATEWAY_HTTP_TIMEOUT_SEC) > 0, "HTTP provider timeout must be positive");
+assert.match(
+  gatewayProduction.VW_GATEWAY_HTTP_AUTH_VALUE,
+  /CHANGE_ME_PRODUCTION_PROVIDER_AUTH_TOKEN_64_HEX/,
+  "production provider auth value must include an obvious placeholder",
+);
+requirePlaceholder("gateway.production.env.example", gatewayProduction, "VW_GATEWAY_SHARED_SECRET");
+requirePlaceholder("gateway.production.env.example", gatewayProduction, "VW_PUBLIC_ID_HMAC_SECRET");
 
 assert.equal(webStaging.GATEWAY_KEY_ID, gatewayStaging.VW_GATEWAY_KEY_ID, "staging key IDs must match");
 assert.equal(
@@ -109,6 +135,17 @@ assert.equal(
   webStaging.PUBLIC_ID_HMAC_SECRET,
   gatewayStaging.VW_PUBLIC_ID_HMAC_SECRET,
   "staging public identity HMAC placeholders must match before replacement",
+);
+assert.equal(webProduction.GATEWAY_KEY_ID, gatewayProduction.VW_GATEWAY_KEY_ID, "production key IDs must match");
+assert.equal(
+  webProduction.GATEWAY_SHARED_SECRET,
+  gatewayProduction.VW_GATEWAY_SHARED_SECRET,
+  "production Web/Gateway shared secret placeholders must match before replacement",
+);
+assert.equal(
+  webProduction.PUBLIC_ID_HMAC_SECRET,
+  gatewayProduction.VW_PUBLIC_ID_HMAC_SECRET,
+  "production public identity HMAC placeholders must match before replacement",
 );
 
 assert.notEqual(webStaging.APP_BASE_URL, webProduction.APP_BASE_URL, "staging and production origins must differ");
@@ -122,5 +159,10 @@ assert.notEqual(webStaging.ADMIN_API_TOKEN, webProduction.ADMIN_API_TOKEN, "stag
 
 console.info("VirtualWait server environment examples verified", {
   envDir,
-  files: ["web.staging.env.example", "gateway.staging.env.example", "web.production.env.example"],
+  files: [
+    "web.staging.env.example",
+    "gateway.staging.env.example",
+    "web.production.env.example",
+    "gateway.production.env.example",
+  ],
 });
