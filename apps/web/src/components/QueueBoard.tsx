@@ -138,7 +138,8 @@ export function QueueBoard({
   const hours = liveVenueHours(data);
   const withinHours = nowMs ? isOpenAt(data, nowMs) : true;
   const queueStatusLabel = withinHours ? "开放" : "未开放";
-  const canJoinNow = data.queue.status === "OPEN" && withinHours;
+  const hasQq = Boolean(user?.qq);
+  const canJoinNow = data.queue.status === "OPEN" && withinHours && hasQq;
 
   async function act(path: string, body?: unknown, key?: string) {
     setBusy(key || path);
@@ -215,6 +216,14 @@ export function QueueBoard({
             {user ? (
               !myEntry ? (
                 <>
+                  {!hasQq && (
+                    <p className="text-xs text-coral-600">
+                      排队需绑定 QQ，用于机台空闲时群内提醒。
+                      <a className="ml-1 underline" href="/me">
+                        去完善
+                      </a>
+                    </p>
+                  )}
                   <div className="flex rounded-md border border-ink-200 bg-white p-0.5">
                     <button
                       type="button"
@@ -239,26 +248,32 @@ export function QueueBoard({
                       拼机
                     </button>
                   </div>
-                  <button
-                    className={accentBtn}
-                    disabled={busy === "join" || !canJoinNow}
-                    onClick={() =>
-                      act(
-                        `/api/queues/${venueSlug}/${machineSlug}/join`,
-                        { playMode: joinMode },
-                        "join"
-                      )
-                    }
-                  >
-                    <Gamepad2 className="h-4 w-4" />
-                    {!canJoinNow
-                      ? `开放 ${hours.label}`
-                      : busy === "join"
-                      ? "排卡中…"
-                      : joinMode === "SOLO"
-                        ? "单刷"
-                        : "拼机"}
-                  </button>
+                  {!hasQq ? (
+                    <a className="btn-primary" href="/me">
+                      完善 QQ 后才能排队
+                    </a>
+                  ) : (
+                    <button
+                      className={accentBtn}
+                      disabled={busy === "join" || !canJoinNow}
+                      onClick={() =>
+                        act(
+                          `/api/queues/${venueSlug}/${machineSlug}/join`,
+                          { playMode: joinMode },
+                          "join"
+                        )
+                      }
+                    >
+                      <Gamepad2 className="h-4 w-4" />
+                      {!withinHours || data.queue.status !== "OPEN"
+                        ? `开放 ${hours.label}`
+                        : busy === "join"
+                        ? "排卡中…"
+                        : joinMode === "SOLO"
+                          ? "单刷"
+                          : "拼机"}
+                    </button>
+                  )}
                 </>
               ) : (
                 <div className="flex flex-wrap gap-2">
@@ -421,20 +436,26 @@ export function QueueBoard({
                       {host?.title ? ` · ${host.title}` : ""}
                     </div>
                   </div>
-                  <button
-                    className="btn-mint !py-1.5"
-                    disabled={busy === `join-${slot.party?.id}` || !canJoinNow}
-                    onClick={() =>
-                      act(
-                        `/api/queues/${venueSlug}/${machineSlug}/join`,
-                        { playMode: "DUO", partyId: slot.party?.id },
-                        `join-${slot.party?.id}`
-                      )
-                    }
-                  >
-                    <UserPlus className="h-4 w-4" />
-                    {canJoinNow ? "加入" : `开放 ${hours.label}`}
-                  </button>
+                  {!hasQq ? (
+                    <a className="btn-mint !py-1.5" href="/me">
+                      完善 QQ
+                    </a>
+                  ) : (
+                    <button
+                      className="btn-mint !py-1.5"
+                      disabled={busy === `join-${slot.party?.id}` || !canJoinNow}
+                      onClick={() =>
+                        act(
+                          `/api/queues/${venueSlug}/${machineSlug}/join`,
+                          { playMode: "DUO", partyId: slot.party?.id },
+                          `join-${slot.party?.id}`
+                        )
+                      }
+                    >
+                      <UserPlus className="h-4 w-4" />
+                      {canJoinNow ? "加入" : `开放 ${hours.label}`}
+                    </button>
+                  )}
                 </li>
               );
             })}

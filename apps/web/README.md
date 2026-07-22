@@ -131,3 +131,12 @@ npm run preflight -- --production
 - 运行时设置（超时、场地元数据、硬币）与队列同库，备份与权限要求相同。
 
 发布前请同时阅读 [安全与发布清单](../../docs/SECURITY.md)、[架构说明](../../docs/ARCHITECTURE.md) 和 [部署说明](../../infra/server/README.md)。
+
+## 机器人 Bot API（可选）
+
+配置 `BOT_API_TOKEN` 后启用：
+
+- `GET /api/bot/catalog`
+- `GET /api/bot/queues/{venueSlug}/{machineSlug}`
+
+玩家在 `/me` 绑定 QQ；管理员在场地中配置群 UMO（`groupUmo`）。详见 [docs/QUEUE_NOTIFY.md](../../docs/QUEUE_NOTIFY.md) 与插件 [`plugins/astrbot_plugin_virtualwait_queue`](../../plugins/astrbot_plugin_virtualwait_queue)。

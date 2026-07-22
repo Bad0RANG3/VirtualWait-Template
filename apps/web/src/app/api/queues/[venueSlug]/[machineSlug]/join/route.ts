@@ -23,7 +23,8 @@ export async function POST(
     assertSameOrigin(req);
     const user = await getSessionUser(req);
     if (!user) return mapServiceError(new Error("NOT_AUTHENTICATED"));
-    // 舞萌绑定改为可选，不再拦截排卡
+    // 排队需绑定 QQ，便于空闲时群内 @；舞萌绑定仍可选
+    if (!user.qq) return mapServiceError(new Error("QQ_REQUIRED"));
 
     const body = schema.parse(await readJsonBody(req, { emptyBody: {} }));
     const { venueSlug, machineSlug } = await ctx.params;

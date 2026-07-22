@@ -109,6 +109,7 @@ const sessionSecret = str("SESSION_SECRET", DEV_SESSION_SECRET);
 const publicIdHmacSecret = str("PUBLIC_ID_HMAC_SECRET", DEV_PUBLIC_ID_SECRET);
 const gatewaySharedSecret = str("GATEWAY_SHARED_SECRET", DEV_GATEWAY_SECRET);
 const adminApiToken = str("ADMIN_API_TOKEN");
+const botApiToken = str("BOT_API_TOKEN");
 const appBaseUrl = str("APP_BASE_URL").replace(/\/$/, "");
 const gatewayBaseUrl = str("GATEWAY_BASE_URL", "http://127.0.0.1:8787");
 const trustProxyHeaders = bool(
@@ -159,6 +160,12 @@ export const env = {
   gatewayKeyId: process.env.GATEWAY_KEY_ID || "template-web-1",
   gatewaySharedSecret,
   adminApiToken,
+  /** Separate bearer for AstrBot / machine-to-machine queue APIs. Empty disables /api/bot/*. */
+  botApiToken,
+  /** Catalog pulls per minute for BOT_API_TOKEN. */
+  botCatalogRateLimit: num("BOT_CATALOG_RATE_LIMIT", 20),
+  /** Queue detail pulls per minute for BOT_API_TOKEN. */
+  botQueueRateLimit: num("BOT_QUEUE_RATE_LIMIT", 120),
   trustProxyHeaders,
   playingTimeoutSec: num("PLAYING_TIMEOUT_SEC", 1500),
   /** Seconds the head group has to confirm onto a free machine. */

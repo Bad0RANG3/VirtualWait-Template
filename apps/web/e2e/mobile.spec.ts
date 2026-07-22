@@ -2,10 +2,10 @@ import { expect, test } from "@playwright/test";
 
 test("移动端可完成 Mock 扫码登录，页面不产生横向溢出", async ({ page }) => {
   await page.goto("/login");
-  await expect(page.getByRole("heading", { name: "舞萌二维码登录" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "扫码登录" })).toBeVisible();
 
   await page
-    .getByLabel("二维码内容")
+    .getByLabel("二维码")
     // Browser projects share one test database. Reuse the same account as the
     // desktop login so the real one-IP/one-account-per-day rule remains on.
     .fill("mock:playwright-user:Playwright玩家:14500:E2E");

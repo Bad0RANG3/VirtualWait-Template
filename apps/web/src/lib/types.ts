@@ -29,6 +29,8 @@ export interface SessionUser {
   title: string | null;
   bound: boolean;
   avatarUrl: string | null;
+  /** Bound QQ for queue join + bot @ notifications; never on public queue APIs. */
+  qq: string | null;
   loginProvider: "maimai" | "unknown";
 }
 

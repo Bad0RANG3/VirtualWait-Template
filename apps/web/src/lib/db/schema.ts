@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS venue (
   machine_count INTEGER,
   open_minute INTEGER,
   close_minute INTEGER,
+  group_umo TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -55,6 +56,7 @@ CREATE TABLE IF NOT EXISTS app_user (
   bound_at TEXT,
   last_login_ip_hash TEXT,
   last_login_day TEXT,
+  qq TEXT UNIQUE,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -171,4 +173,7 @@ export const MIGRATIONS_SQL = [
     value TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
+  `ALTER TABLE app_user ADD COLUMN qq TEXT`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS app_user_qq_unique ON app_user(qq) WHERE qq IS NOT NULL`,
+  `ALTER TABLE venue ADD COLUMN group_umo TEXT`,
 ];

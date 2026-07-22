@@ -27,6 +27,10 @@ export function joinQueue(
   targetPartyId?: string | null,
 ) {
   const db = getDb();
+  const userRow = db
+    .prepare(`SELECT qq FROM app_user WHERE id = ?`)
+    .get(userId) as { qq: string | null } | undefined;
+  if (!userRow?.qq) throw new Error("QQ_REQUIRED");
   const queue = db.prepare(`SELECT * FROM queue WHERE id = ?`).get(queueId) as
     | { id: string; status: string; next_sequence: number }
     | undefined;

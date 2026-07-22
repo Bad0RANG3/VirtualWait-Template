@@ -175,6 +175,7 @@ function ensureWechatPasswordNullable(db: Db) {
         bound_at TEXT,
         last_login_ip_hash TEXT,
         last_login_day TEXT,
+        qq TEXT UNIQUE,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -203,6 +204,7 @@ function ensureWechatPasswordNullable(db: Db) {
       "bound_at",
       "last_login_ip_hash",
       "last_login_day",
+      "qq",
       "created_at",
       "updated_at",
     ];

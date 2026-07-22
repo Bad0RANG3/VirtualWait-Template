@@ -43,6 +43,7 @@ type VenueMeta = {
   openMinute: number;
   closeMinute: number;
   hoursLabel: string;
+  groupUmo: string;
 };
 type MachineMeta = {
   id: string;
@@ -93,6 +94,7 @@ export function AdminDashboard({
         machineCount: number;
         openTime: string;
         closeTime: string;
+        groupUmo: string;
       }
     >
   >(() =>
@@ -106,6 +108,7 @@ export function AdminDashboard({
           machineCount: v.machineCount,
           openTime: minutesToTimeInput(v.openMinute),
           closeTime: minutesToTimeInput(v.closeMinute),
+          groupUmo: v.groupUmo || "",
         },
       ]),
     ),
@@ -220,6 +223,7 @@ export function AdminDashboard({
             machineCount: Number(draft.machineCount),
             openMinute,
             closeMinute,
+            groupUmo: draft.groupUmo,
           }),
         },
       );
@@ -235,6 +239,7 @@ export function AdminDashboard({
             machineCount: data.venue.machineCount,
             openTime: minutesToTimeInput(data.venue.openMinute),
             closeTime: minutesToTimeInput(data.venue.closeMinute),
+            groupUmo: data.venue.groupUmo || "",
           },
         }));
       }
@@ -405,6 +410,17 @@ export function AdminDashboard({
                     value={draft.address}
                     onChange={(e) =>
                       patchVenue(venue.id, { address: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="label">群 UMO</label>
+                  <input
+                    className="field"
+                    value={draft.groupUmo}
+                    placeholder="aiocqhttp:GroupMessage:群号"
+                    onChange={(e) =>
+                      patchVenue(venue.id, { groupUmo: e.target.value })
                     }
                   />
                 </div>

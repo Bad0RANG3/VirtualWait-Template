@@ -1,0 +1,53 @@
+{
+  "base_url": {
+    "description": "VirtualWait Web 根地址，例如 https://wait.example.com",
+    "type": "string",
+    "hint": "不要以 / 结尾",
+    "default": "http://127.0.0.1:3000"
+  },
+  "bot_token": {
+    "description": "与 Web BOT_API_TOKEN 一致的 Bearer Token",
+    "type": "string",
+    "default": ""
+  },
+  "poll_interval_sec": {
+    "description": "轮询间隔（秒）",
+    "type": "int",
+    "default": 8
+  },
+  "cooldown_sec": {
+    "description": "同一 QQ 组合冷却秒数",
+    "type": "int",
+    "default": 300
+  },
+  "warmup_rounds": {
+    "description": "启动后仅填充缓存、不通知的轮数",
+    "type": "int",
+    "default": 2
+  },
+  "default_umo": {
+    "description": "兜底群 UMO，例如 aiocqhttp:GroupMessage:123456",
+    "type": "string",
+    "default": ""
+  },
+  "routing": {
+    "description": "venueSlug -> UMO 的 JSON 对象字符串（后端 groupUmo 优先）",
+    "type": "string",
+    "default": "{}"
+  },
+  "district_routing": {
+    "description": "district:<slug> -> UMO 的 JSON 对象字符串",
+    "type": "string",
+    "default": "{}"
+  },
+  "stats_interval_sec": {
+    "description": "无 QQ 统计日志间隔（秒）",
+    "type": "int",
+    "default": 600
+  },
+  "max_backoff_sec": {
+    "description": "429/网络错误指数退避上限（秒）",
+    "type": "int",
+    "default": 120
+  }
+}

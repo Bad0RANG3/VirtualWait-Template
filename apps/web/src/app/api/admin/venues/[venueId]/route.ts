@@ -10,6 +10,7 @@ const patchSchema = z.object({
   machineCount: z.number().int().min(0).max(999),
   openMinute: z.number().int().min(0).max(23 * 60 + 59),
   closeMinute: z.number().int().min(1).max(24 * 60),
+  groupUmo: z.string().max(200).optional(),
 });
 
 export async function GET(req: Request) {

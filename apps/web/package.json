@@ -10,7 +10,7 @@
     "build": "NODE_OPTIONS=--experimental-sqlite next build",
     "start": "NODE_OPTIONS=--experimental-sqlite next start",
     "lint": "eslint .",
-    "test": "tsx --test src/lib/gateway/contracts.test.ts src/lib/auth/ip.test.ts src/lib/queue/maintenance.test.ts src/lib/env.test.ts src/lib/api.test.ts src/lib/constants/catalog.test.ts src/lib/queue/head-timeout.test.ts",
+    "test": "tsx --test src/lib/gateway/contracts.test.ts src/lib/auth/ip.test.ts src/lib/queue/maintenance.test.ts src/lib/env.test.ts src/lib/api.test.ts src/lib/constants/catalog.test.ts src/lib/queue/head-timeout.test.ts src/lib/queue/bot.test.ts src/lib/queue/join-qq.test.ts",
     "test:e2e": "node scripts/e2e.mjs",
     "test:browser": "playwright test",
     "preflight": "node scripts/preflight.mjs",
@@ -41,6 +41,7 @@
     "typescript": "^5.8.3"
   },
   "overrides": {
-    "postcss": "$postcss"
+    "postcss": "$postcss",
+    "sharp": "^0.35.0"
   }
 }

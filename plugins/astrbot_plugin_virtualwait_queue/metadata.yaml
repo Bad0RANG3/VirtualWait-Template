@@ -1,0 +1,5 @@
+name: virtualwait_queue
+desc: VirtualWait 机台空闲排队 @ 通知
+version: 0.1.0
+author: VirtualWait
+repo: https://github.com/AstrBotDevs/AstrBot

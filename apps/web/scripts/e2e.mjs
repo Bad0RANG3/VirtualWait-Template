@@ -90,6 +90,18 @@ async function post(baseUrl, pathname, body, headers = {}) {
   });
 }
 
+async function patch(baseUrl, pathname, body, headers = {}) {
+  return fetch(`${baseUrl}${pathname}`, {
+    method: "PATCH",
+    headers: {
+      Origin: baseUrl,
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 let gateway;
 let web;
 let tempDirectory;
@@ -150,6 +162,15 @@ try {
   const loginBody = await login.json();
   assert.equal(loginBody.status, "SUCCEEDED");
   assert.equal(loginBody.user.nickname, "E2EUser");
+
+  const bindQq = await patch(
+    baseUrl,
+    "/api/auth/me",
+    { qq: "12345678" },
+    { Cookie: userCookie },
+  );
+  assert.equal(bindQq.status, 200, "logged-in user should be able to bind a QQ number");
+  assert.equal((await bindQq.json()).user.qq, "12345678");
 
   const join = await post(
     baseUrl,

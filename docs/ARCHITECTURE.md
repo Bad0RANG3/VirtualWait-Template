@@ -164,3 +164,16 @@ node scripts/verify-all.mjs
 ```
 
 或分步：`apps/web` 的 lint / tsc / unit / e2e / browser，以及 `services/sdgb-gateway` 的 pytest。
+
+## 8. 机器人队列通知（Bot API）
+
+与 AstrBot 插件联动时，Web 提供独立 Bearer 鉴权的 Bot 面（`BOT_API_TOKEN`），**不**复用管理员 token：
+
+| 路径 | 用途 |
+|------|------|
+| `GET /api/bot/catalog` | 全市机台摘要（`activeCount` / `hasPlaying` / `groupUmo`） |
+| `GET /api/bot/queues/{venue}/{machine}` | 详情：`machineIdle`、队首玩家与可选 `qq` |
+
+用户在 `/me` 绑定 `app_user.qq`；场地在管理后台配置 `venue.group_umo`（下发为 `groupUmo`）。公开 `/public` **永不**返回 QQ。
+
+细节、限流默认值、插件行为与测试矩阵见 [QUEUE_NOTIFY.md](QUEUE_NOTIFY.md)。

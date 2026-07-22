@@ -128,7 +128,7 @@ export function getUserById(userId: string): SessionUser | null {
   const row = db
     .prepare(
       `SELECT id, nickname, display_name, rating, show_rating_public, title, sdgb_identity_hash,
-              avatar_url
+              avatar_url, qq
        FROM app_user WHERE id = ?`
     )
     .get(userId) as
@@ -141,6 +141,7 @@ export function getUserById(userId: string): SessionUser | null {
         title: string | null;
         sdgb_identity_hash: string | null;
         avatar_url: string | null;
+        qq: string | null;
       }
     | undefined;
   if (!row) return null;
@@ -154,6 +155,7 @@ export function getUserById(userId: string): SessionUser | null {
     title: bound ? row.title : null,
     bound,
     avatarUrl: row.avatar_url,
+    qq: row.qq || null,
     loginProvider: bound ? "maimai" : "unknown",
   };
 }

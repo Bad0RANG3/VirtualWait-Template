@@ -23,6 +23,8 @@ export type VenueMeta = {
   openMinute: number;
   closeMinute: number;
   hoursLabel: string;
+  /** AstrBot UMO for queue-idle @ notifications; empty if unset. */
+  groupUmo: string;
   isActive: boolean;
   updatedAt: string;
   machines: MachineMeta[];
@@ -117,7 +119,7 @@ export function listVenueMeta(): VenueMeta[] {
   const rows = getDb()
     .prepare(
       `SELECT id, name, slug, timezone, address, region_name, region_kind,
-              machine_count, open_minute, close_minute, is_active, updated_at
+              machine_count, open_minute, close_minute, group_umo, is_active, updated_at
        FROM venue
        ORDER BY name`,
     )
@@ -132,6 +134,7 @@ export function listVenueMeta(): VenueMeta[] {
     machine_count: number | null;
     open_minute: number | null;
     close_minute: number | null;
+    group_umo: string | null;
     is_active: number;
     updated_at: string;
   }>;
@@ -162,6 +165,7 @@ export function listVenueMeta(): VenueMeta[] {
       openMinute: hours.openMinute,
       closeMinute: hours.closeMinute,
       hoursLabel: hours.label,
+      groupUmo: row.group_umo || "",
       isActive: Boolean(row.is_active),
       updatedAt: row.updated_at,
       machines: venueMachines,
@@ -173,7 +177,7 @@ export function getVenueMetaBySlug(slug: string): VenueMeta | null {
   const row = getDb()
     .prepare(
       `SELECT id, name, slug, timezone, address, region_name, region_kind,
-              machine_count, open_minute, close_minute, is_active, updated_at
+              machine_count, open_minute, close_minute, group_umo, is_active, updated_at
        FROM venue
        WHERE slug = ?`,
     )
@@ -189,6 +193,7 @@ export function getVenueMetaBySlug(slug: string): VenueMeta | null {
         machine_count: number | null;
         open_minute: number | null;
         close_minute: number | null;
+        group_umo: string | null;
         is_active: number;
         updated_at: string;
       }
@@ -240,6 +245,7 @@ export function getVenueMetaBySlug(slug: string): VenueMeta | null {
     openMinute: hours.openMinute,
     closeMinute: hours.closeMinute,
     hoursLabel: hours.label,
+    groupUmo: row.group_umo || "",
     isActive: Boolean(row.is_active),
     updatedAt: row.updated_at,
     machines,
@@ -277,6 +283,7 @@ export function updateVenueMeta(
     machineCount: number;
     openMinute: number;
     closeMinute: number;
+    groupUmo?: string;
   },
 ) {
   const address = input.address.trim().slice(0, 200);
@@ -290,6 +297,7 @@ export function updateVenueMeta(
     throw new Error("INVALID_MACHINE_COUNT");
   }
   const hours = normalizeVenueHours(input.openMinute, input.closeMinute);
+  const groupUmo = (input.groupUmo ?? "").trim().slice(0, 200);
 
   const db = getDb();
   const existing = db
@@ -305,6 +313,7 @@ export function updateVenueMeta(
          machine_count = ?,
          open_minute = ?,
          close_minute = ?,
+         group_umo = ?,
          updated_at = ?
      WHERE id = ?`,
   ).run(
@@ -314,6 +323,7 @@ export function updateVenueMeta(
     machineCount,
     hours.openMinute,
     hours.closeMinute,
+    groupUmo || null,
     nowIso(),
     venueId,
   );
