@@ -21,8 +21,24 @@ test("bot catalog and queue detail expose groupUmo and head qq", async () => {
      VALUES
       ('u-a', 'PlayerA', 1, '10001', ?, ?),
       ('u-b', 'PlayerB', 1, '10002', ?, ?),
-      ('u-c', 'PlayerC', 1, NULL, ?, ?)`,
-  ).run(now, now, now, now, now, now);
+      ('u-c', 'PlayerC', 1, NULL, ?, ?),
+      ('u-d', 'PlayerD', 1, '10003', ?, ?),
+      ('u-e', 'PlayerE', 1, '10004', ?, ?),
+      ('u-other', 'OtherVenuePlayer', 1, '10005', ?, ?)`,
+  ).run(
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+  );
 
   updateVenueMeta("venue-sample-central", {
     address: "addr",
@@ -35,20 +51,46 @@ test("bot catalog and queue detail expose groupUmo and head qq", async () => {
   });
 
   db.prepare(
+    `INSERT INTO queue_party
+      (id, queue_id, play_mode, status, host_user_id, guest_user_id,
+       host_confirmed, guest_confirmed, created_at, updated_at)
+     VALUES ('party-de', 'queue-a', 'DUO', 'CONFIRMED', 'u-d', 'u-e', 1, 1, ?, ?)`,
+  ).run(now, now);
+
+  db.prepare(
     `INSERT INTO queue_entry
       (id, queue_id, user_id, party_id, play_mode, sequence_number, status, version,
        joined_at, created_at, updated_at)
      VALUES
       ('e-a', 'queue-a', 'u-a', NULL, 'SOLO', 1, 'WAITING', 1, ?, ?, ?),
-      ('e-c', 'queue-a', 'u-c', NULL, 'SOLO', 2, 'WAITING', 1, ?, ?, ?)`,
-  ).run(now, now, now, now, now, now);
+      ('e-c', 'queue-a', 'u-c', NULL, 'SOLO', 2, 'WAITING', 1, ?, ?, ?),
+      ('e-d', 'queue-a', 'u-d', 'party-de', 'DUO', 3, 'WAITING', 1, ?, ?, ?),
+      ('e-e', 'queue-a', 'u-e', 'party-de', 'DUO', 4, 'WAITING', 1, ?, ?, ?),
+      ('e-other', 'queue-east-a', 'u-other', NULL, 'SOLO', 1, 'WAITING', 1, ?, ?, ?)`,
+  ).run(
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+    now,
+  );
 
   const catalog = getBotCatalog();
   const machine = catalog.machines.find(
     (item) => item.venueSlug === "sample-venue" && item.machineSlug === "machine-a",
   );
   assert.ok(machine);
-  assert.equal(machine!.activeCount, 2);
+  assert.equal(machine!.activeCount, 4);
   assert.equal(machine!.hasPlaying, false);
   assert.equal(machine!.groupUmo, "aiocqhttp:GroupMessage:999");
 
@@ -59,6 +101,24 @@ test("bot catalog and queue detail expose groupUmo and head qq", async () => {
   assert.ok(detail!.head);
   assert.equal(detail!.head!.players[0]?.displayName, "PlayerA");
   assert.equal(detail!.head!.players[0]?.qq, "10001");
+  assert.equal(detail!.cityName, "示例市");
+  assert.deepEqual(
+    detail!.waitingQueue.map((slot) => ({
+      position: slot.position,
+      names: slot.players.map((player) => player.displayName),
+    })),
+    [
+      { position: 1, names: ["PlayerA"] },
+      { position: 2, names: ["PlayerC"] },
+      { position: 3, names: ["PlayerD", "PlayerE"] },
+    ],
+  );
+  assert.equal(
+    detail!.waitingQueue.some((slot) =>
+      slot.players.some((player) => player.displayName === "OtherVenuePlayer"),
+    ),
+    false,
+  );
   assert.equal(
     botHeadCooldownKey(detail!.machineSlug, detail!.head!.players),
     "machine-a_10001",
@@ -71,6 +131,8 @@ test("bot catalog and queue detail expose groupUmo and head qq", async () => {
   const busy = getBotQueueDetail("sample-venue", "machine-a");
   assert.equal(busy!.machineIdle, false);
   assert.equal(busy!.head, null);
+  assert.equal(busy!.waitingQueue.length, 2);
+  assert.equal(busy!.waitingQueue[0]?.players[0]?.displayName, "PlayerC");
 });
 
 test("bot head cooldown key sorts qq set", async () => {

@@ -15,6 +15,7 @@
 | `bot_token` | 与 `BOT_API_TOKEN` 相同 |
 | `poll_interval_sec` | 默认 8 |
 | `cooldown_sec` | 默认 300 |
+| `reminder_minutes` | 叫号后上机时限，默认 3 分钟 |
 | `warmup_rounds` | 默认 2（前 N 轮只缓存） |
 | `default_umo` | 兜底群 UMO |
 | `routing` | JSON：`{"sample-venue":"aiocqhttp:GroupMessage:1"}` |
@@ -31,6 +32,7 @@
 
 - 热集：`activeCount>0 || hasPlaying`
 - 通知：`machineIdle && head`
+- 通知先显示当前机台完整等待队列，再以真实 QQ @ 组件提醒队首
 - `headKey = machineSlug + "_" + sorted(qqs joined by _)`
 - 同一 `headKey` 冷却默认 5 分钟
 - 启动 warmup 2 轮不通知

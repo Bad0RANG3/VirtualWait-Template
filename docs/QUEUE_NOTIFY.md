@@ -52,6 +52,7 @@
 | 机台标识 | `machineSlug` / `machineName` |
 | 队首组 | `head`（空闲且有等待时非 null） |
 | 队首玩家 | `head.players[]`：`entryId`, `displayName`, `qq` |
+| 完整等待队列 | `waitingQueue[]`：当前机台的等待槽位；双人组同一排位，按公开队列顺序返回 |
 | 机台空闲 | `machineIdle` |
 | 活跃/热集 | catalog：`activeCount`, `hasPlaying` |
 | 群 UMO | `groupUmo`（可空） |
@@ -125,9 +126,18 @@ cooldown_key = f"{machineSlug}_{'_'.join(sorted(qqs))}"
 
 ### 5.4 文案与双人
 
-单人：`@[qq] 您排队的[区/店]的[机台]已空闲，请速去前台开卡上机！`
+通知正文先展示当前被叫号机台的完整等待队列（队列数据在机台维度维护，不能与其他机台混排），再 @ 队首：
 
-双人：同一条消息 @ 所有有 QQ 的玩家，正文含「您与【队友昵称】」。
+```text
+示例市示例区示例中心店队伍情况：
+
+1、玩家 A
+2、玩家 B、玩家 C
+
+@玩家 A，请在3分钟内上机游玩
+```
+
+双人组同一条消息 @ 所有已绑定 QQ 的成员；`@` 由 AstrBot `At` 组件发送，不是普通文本。
 
 发送：`context.send_message(umo, MessageChain([Comp.At(qq=...), Plain(...) ]))`。
 

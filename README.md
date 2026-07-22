@@ -136,6 +136,7 @@ python3 -m unittest plugins/astrbot_plugin_virtualwait_queue/test_helpers.py
 - [技术规格与上线验收](docs/TECHNICAL_SPEC.md)：系统边界、状态机、数据、安全、运维与验收标准；
 - [架构与队列流程](docs/ARCHITECTURE.md)：模块地图、队列规则和 API 概览；
 - [队列通知联动](docs/QUEUE_NOTIFY.md)：QQ、Bot API、AstrBot 插件的完整联调规范；
+- [运行流程与自托管部署](docs/DEPLOYMENT.md)：流程图、部署前准备和服务器上线步骤；
 - [模板定制](docs/TEMPLATE.md)：替换目录、品牌、规则和身份 provider；
 - [安全与发布清单](docs/SECURITY.md)：密钥、数据、网络和发布要求；
 - [文档索引](docs/README.md)：所有子模块文档入口。

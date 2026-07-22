@@ -20,7 +20,8 @@ logger = logging.getLogger("astrbot.plugin.virtualwait_queue")
 
 from helpers import (
     build_head_key,
-    build_notify_text,
+    build_call_reminder,
+    build_queue_status_text,
     parse_json_object,
     resolve_umo,
 )
@@ -239,20 +240,24 @@ class VirtualWaitQueueNotify(Star):
             logger.warning("no umo for venue=%s machine=%s", venue, mslug)
             return
 
-        text = build_notify_text(
-            players=players,
+        queue_text = build_queue_status_text(
+            waiting_queue=list(detail.get("waitingQueue") or []),
+            city_name=str(detail.get("cityName") or machine.get("cityName") or ""),
             district_name=str(
                 detail.get("districtName") or machine.get("districtName") or ""
             ),
             venue_name=str(detail.get("venueName") or machine.get("venueName") or ""),
-            machine_name=str(
-                detail.get("machineName") or machine.get("machineName") or ""
-            ),
         )
-        chain_parts: list[Any] = []
+        try:
+            reminder_minutes = max(1, int(self._cfg("reminder_minutes", 3) or 3))
+        except (TypeError, ValueError):
+            reminder_minutes = 3
+        # Keep the @ as an AstrBot component, rather than inserting an @ name
+        # into Plain text. QQ can therefore render a clickable mention.
+        chain_parts: list[Any] = [Plain(queue_text + "\n\n")]
         for qq in qqs:
             chain_parts.append(At(qq=int(qq) if qq.isdigit() else qq))
-        chain_parts.append(Plain(" " + text))
+        chain_parts.append(Plain(build_call_reminder(reminder_minutes)))
         try:
             # AstrBot versions differ slightly; try MessageChain then raw list.
             try:
@@ -263,6 +268,7 @@ class VirtualWaitQueueNotify(Star):
         except Exception:
             logger.exception("send_message failed umo=%s", umo)
             # do not set cooldown on failure so next round can retry
+            # 哦吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼
             self._last_head[cache_key] = prev if prev is not None else ""
             return
 

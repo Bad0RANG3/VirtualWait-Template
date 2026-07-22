@@ -44,22 +44,40 @@ def resolve_umo(
     return None
 
 
-def build_notify_text(
+def build_queue_status_text(
     *,
-    players: list[dict[str, Any]],
+    waiting_queue: list[dict[str, Any]],
+    city_name: str,
     district_name: str,
     venue_name: str,
-    machine_name: str,
 ) -> str:
-    place = "/".join([p for p in [district_name, venue_name] if p]) or venue_name or "本店"
-    machine = machine_name or "机台"
-    names = [str(p.get("displayName") or "玩家") for p in players]
-    if len(players) > 1:
-        teammates = "、".join(names[1:]) if len(names) > 1 else "队友"
-        prefix = f"您与【{teammates}】"
-    else:
-        prefix = "您"
-    return f"{prefix}排队的{place}的{machine}已空闲，请速去前台开卡上机！"
+    """Build the plain-text portion before the real AstrBot @ component.
+
+    ``waiting_queue`` is slot-based so a duo remains one queue position, matching
+    the ordering shown by the Web queue board.
+    """
+    place = "".join(
+        part.strip()
+        for part in [city_name, district_name, venue_name]
+        if str(part).strip()
+    ) or "本机厅"
+    lines = [f"{place}队伍情况：", ""]
+    for index, slot in enumerate(waiting_queue, start=1):
+        players = slot.get("players") if isinstance(slot, dict) else None
+        names = [
+            str(player.get("displayName") or "").strip() or "未命名玩家"
+            for player in (players if isinstance(players, list) else [])
+            if isinstance(player, dict)
+        ]
+        lines.append(f"{index}、{'、'.join(names) if names else '未命名玩家'}")
+    if len(lines) == 2:
+        lines.append("（当前暂无等待玩家）")
+    return "\n".join(lines)
+
+
+def build_call_reminder(reminder_minutes: int = 3) -> str:
+    """Text sent immediately after AstrBot's real @ mention(s)."""
+    return f"，请在{max(1, reminder_minutes)}分钟内上机游玩"
 
 
 def parse_json_object(raw: Any) -> dict[str, str]:

@@ -20,6 +20,11 @@
     "type": "int",
     "default": 300
   },
+  "reminder_minutes": {
+    "description": "叫号后要求上机的分钟数",
+    "type": "int",
+    "default": 3
+  },
   "warmup_rounds": {
     "description": "启动后仅填充缓存、不通知的轮数",
     "type": "int",

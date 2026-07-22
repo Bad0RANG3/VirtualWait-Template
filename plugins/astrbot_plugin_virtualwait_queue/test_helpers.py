@@ -6,7 +6,7 @@ from pathlib import Path
 # as from AstrBot's plugin directory.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from helpers import build_head_key, resolve_umo, build_notify_text
+from helpers import build_call_reminder, build_head_key, build_queue_status_text, resolve_umo
 
 
 class HelperTests(unittest.TestCase):
@@ -51,18 +51,38 @@ class HelperTests(unittest.TestCase):
             "d",
         )
 
-    def test_duo_text(self):
-        text = build_notify_text(
-            players=[
-                {"displayName": "甲", "qq": "1"},
-                {"displayName": "乙", "qq": "2"},
-            ],
+    def test_queue_status_preserves_duo_position_and_empty_name(self):
+        text = build_queue_status_text(
+            city_name="示例市",
             district_name="示例区",
             venue_name="中心店",
-            machine_name="机台A",
+            waiting_queue=[
+                {"position": 1, "players": [{"displayName": "甲", "qq": "1"}]},
+                {
+                    "position": 2,
+                    "players": [
+                        {"displayName": "乙", "qq": "2"},
+                        {"displayName": "", "qq": "3"},
+                    ],
+                },
+            ],
         )
-        self.assertIn("您与【乙】", text)
-        self.assertIn("机台A", text)
+        self.assertEqual(
+            text,
+            "示例市示例区中心店队伍情况：\n\n1、甲\n2、乙、未命名玩家",
+        )
+
+    def test_empty_queue_and_default_reminder(self):
+        self.assertIn(
+            "当前暂无等待玩家",
+            build_queue_status_text(
+                city_name="",
+                district_name="",
+                venue_name="",
+                waiting_queue=[],
+            ),
+        )
+        self.assertEqual(build_call_reminder(), "，请在3分钟内上机游玩")
 
 
 if __name__ == "__main__":

@@ -33,7 +33,15 @@ export type BotHeadPlayer = {
   qq: string | null;
 };
 
+export type BotWaitingSlot = {
+  /** Position in this machine's waiting line. Duo players share one position. */
+  position: number;
+  playMode: "SOLO" | "DUO";
+  players: BotHeadPlayer[];
+};
+
 export type BotQueueDetail = {
+  cityName: string;
   venueSlug: string;
   venueName: string;
   machineSlug: string;
@@ -46,6 +54,8 @@ export type BotQueueDetail = {
     playMode: "SOLO" | "DUO";
     players: BotHeadPlayer[];
   } | null;
+  /** All waiting slots for this machine, in the same order as the public queue. */
+  waitingQueue: BotWaitingSlot[];
   now: string;
 };
 
@@ -154,11 +164,13 @@ export function getBotCatalog(): { machines: BotCatalogMachine[]; now: string } 
   return { machines, now: nowIso() };
 }
 
-function headPlayersFromEntries(entries: EntryRow[]): BotHeadPlayer[] {
-  const qqMap = qqByUserId(entries.map((entry) => entry.user_id));
+function botPlayersFromEntries(
+  entries: EntryRow[],
+  qqMap: Map<string, string | null>,
+): BotHeadPlayer[] {
   return entries.map((entry) => ({
     entryId: entry.id,
-    displayName: entry.nickname,
+    displayName: entry.nickname?.trim() || "未命名玩家",
     qq: qqMap.get(entry.user_id) ?? null,
   }));
 }
@@ -183,6 +195,28 @@ export function getBotQueueDetail(
 
   const built = buildSlots(active, parties, null);
   const machineIdle = !built.slots.some((slot) => slot.status === "PLAYING");
+  const qqMap = qqByUserId(active.map((entry) => entry.user_id));
+  const waitingQueue: BotWaitingSlot[] = built.slots
+    .filter((slot) => slot.status === "WAITING")
+    .map((slot, index) => {
+      const slotEntries = slot.entries
+        .map((view) => active.find((row) => row.id === view.id))
+        .filter((row): row is EntryRow => Boolean(row));
+      return {
+        // WAITING slots always receive a position in buildSlots; retain a
+        // defensive fallback for the public view's nullable type.
+        position: slot.position ?? index + 1,
+        playMode: slot.playMode,
+        players:
+          slotEntries.length > 0
+            ? botPlayersFromEntries(slotEntries, qqMap)
+            : slot.entries.map((entry) => ({
+                entryId: entry.id,
+                displayName: entry.profile.displayName?.trim() || "未命名玩家",
+                qq: null,
+              })),
+      };
+    });
   const headSlot = built.slots.find(
     (slot) => slot.status === "WAITING" && slot.position === 1,
   );
@@ -196,10 +230,10 @@ export function getBotQueueDetail(
       playMode: headSlot.playMode,
       players:
         headEntries.length > 0
-          ? headPlayersFromEntries(headEntries)
+          ? botPlayersFromEntries(headEntries, qqMap)
           : headSlot.entries.map((entry) => ({
               entryId: entry.id,
-              displayName: entry.profile.displayName,
+              displayName: entry.profile.displayName?.trim() || "未命名玩家",
               qq: null,
             })),
     };
@@ -207,6 +241,7 @@ export function getBotQueueDetail(
 
   const place = districtForVenue(queue.venue_slug);
   return {
+    cityName: place.cityName || "",
     venueSlug: queue.venue_slug,
     venueName: queue.venue_name,
     machineSlug: queue.slug,
@@ -216,6 +251,7 @@ export function getBotQueueDetail(
     machineIdle,
     groupUmo: groupUmoForVenue(queue.venue_slug),
     head,
+    waitingQueue,
     now: nowIso(),
   };
 }
