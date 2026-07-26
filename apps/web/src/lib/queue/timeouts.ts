@@ -19,6 +19,8 @@ export type WaitingGroup = {
   sequenceNumber: number;
 };
 
+/** Group waiting entries by solo key or duo party in O(n) — single scan
+ *  with a Map, then sort groups by their minimum sequence number. */
 export function waitingGroups(queueId: string): WaitingGroup[] {
   const rows = getDb()
     .prepare(
@@ -28,29 +30,28 @@ export function waitingGroups(queueId: string): WaitingGroup[] {
        ORDER BY sequence_number ASC`,
     )
     .all(queueId) as WaitingMember[];
-  const groups: WaitingGroup[] = [];
-  const seen = new Set<string>();
+
+  const groupMap = new Map<string, WaitingMember[]>();
   for (const row of rows) {
     const key =
       row.party_id && row.play_mode === "DUO"
         ? `party:${row.party_id}`
         : `solo:${row.id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const members =
-      row.party_id && row.play_mode === "DUO"
-        ? rows.filter(
-            (item) => item.party_id === row.party_id && item.play_mode === "DUO",
-          )
-        : [row];
-    groups.push({
+    const members = groupMap.get(key);
+    if (members) {
+      members.push(row);
+    } else {
+      groupMap.set(key, [row]);
+    }
+  }
+
+  return Array.from(groupMap.entries())
+    .map(([key, members]) => ({
       key,
       members,
-      sequenceNumber: Math.min(...members.map((member) => member.sequence_number)),
-    });
-  }
-  groups.sort((a, b) => a.sequenceNumber - b.sequenceNumber);
-  return groups;
+      sequenceNumber: Math.min(...members.map((m) => m.sequence_number)),
+    }))
+    .sort((a, b) => a.sequenceNumber - b.sequenceNumber);
 }
 
 function clearHeadEligibility(queueId: string, exceptIds: string[] = []) {
@@ -109,40 +110,40 @@ function moveGroupBackOne(queueId: string, head: WaitingGroup, next: WaitingGrou
     return group;
   });
 
-  // Park every waiting entry on temporary sequence numbers first (unique constraint).
-  let temp = -1;
-  for (const group of ordered) {
-    for (const member of group.members) {
-      db.prepare(
-        `UPDATE queue_entry SET sequence_number = ?, updated_at = ?, version = version + 1
-         WHERE id = ?`,
-      ).run(temp--, now, member.id);
+  db.transaction(() => {
+    // Park every waiting entry on temporary sequence numbers first.
+    let temp = -1;
+    for (const group of ordered) {
+      for (const member of group.members) {
+        db.prepare(
+          `UPDATE queue_entry SET sequence_number = ?, updated_at = ?, version = version + 1
+           WHERE id = ?`,
+        ).run(temp--, now, member.id);
+      }
     }
-  }
 
-  const queue = db
-    .prepare(`SELECT next_sequence FROM queue WHERE id = ?`)
-    .get(queueId) as { next_sequence: number };
-  let sequence = queue.next_sequence;
-  for (const group of swapped) {
-    const isFormerHead = group.key === head.key;
-    for (const member of group.members) {
-      db.prepare(
-        `UPDATE queue_entry
-         SET sequence_number = ?,
-             head_eligible_at = NULL,
-             head_miss_count = ?,
-             updated_at = ?,
-             version = version + 1
-         WHERE id = ?`,
-      ).run(sequence++, isFormerHead ? 1 : member.head_miss_count || 0, now, member.id);
+    const queue = db
+      .prepare(`SELECT next_sequence FROM queue WHERE id = ?`)
+      .get(queueId) as { next_sequence: number };
+    let sequence = queue.next_sequence;
+    for (const group of swapped) {
+      const isFormerHead = group.key === head.key;
+      for (const member of group.members) {
+        db.prepare(
+          `UPDATE queue_entry
+           SET sequence_number = ?,
+               head_eligible_at = NULL,
+               head_miss_count = ?,
+               updated_at = ?,
+               version = version + 1
+           WHERE id = ?`,
+        ).run(sequence++, isFormerHead ? 1 : member.head_miss_count || 0, now, member.id);
+      }
     }
-  }
-  db.prepare(`UPDATE queue SET next_sequence = ?, updated_at = ? WHERE id = ?`).run(
-    sequence,
-    now,
-    queueId,
-  );
+    db.prepare(`UPDATE queue SET next_sequence = ?, updated_at = ? WHERE id = ?`).run(
+      sequence, now, queueId,
+    );
+  })();
 }
 
 function cancelWaitingGroup(

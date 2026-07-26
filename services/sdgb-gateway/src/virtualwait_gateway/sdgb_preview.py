@@ -6,6 +6,8 @@ Flow:
 3. Never call `UserLoginApi` / `UserLogoutApi`.
 
 This module only keeps values in memory for the duration of one verification call.
+All upstream HTTP goes through :mod:`virtualwait_gateway.transport` so redirects
+are never followed and responses are bounded.
 """
 from __future__ import annotations
 
@@ -15,16 +17,15 @@ import hashlib
 import json
 import zlib
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 
+from .transport import http_post, http_post_json, TransportError, DEFAULT_MAX_RESPONSE_BYTES
+
 
 # Asia/Tokyo without requiring pytz.
 _TOKYO = timezone(timedelta(hours=9))
-_MAX_RESPONSE_BYTES = 64 * 1024
 
 
 class SdgbPreviewError(RuntimeError):
@@ -78,31 +79,11 @@ def _normalize_qr(qr_code: str) -> str:
     return value
 
 
-def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], timeout_sec: float) -> dict[str, Any]:
-    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    request = Request(url, data=body, headers=headers, method="POST")
-    try:
-        with urlopen(request, timeout=timeout_sec) as response:  # noqa: S310 - operator-configured endpoint
-            raw = response.read(_MAX_RESPONSE_BYTES + 1)
-    except HTTPError as exc:
-        try:
-            exc.read(_MAX_RESPONSE_BYTES)
-        except Exception:
-            pass
-        raise SdgbPreviewError("QR_EXCHANGE_FAILED") from exc
-    except (TimeoutError, URLError) as exc:
-        raise SdgbPreviewError("UPSTREAM_TIMEOUT") from exc
-    except Exception as exc:  # noqa: BLE001
-        raise SdgbPreviewError("UPSTREAM_PROTOCOL_ERROR") from exc
-    if len(raw) > _MAX_RESPONSE_BYTES:
-        raise SdgbPreviewError("UPSTREAM_PROTOCOL_ERROR")
-    try:
-        parsed = json.loads(raw.decode("utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        raise SdgbPreviewError("UPSTREAM_PROTOCOL_ERROR") from exc
-    if not isinstance(parsed, dict):
-        raise SdgbPreviewError("UPSTREAM_PROTOCOL_ERROR")
-    return parsed
+def _map_transport_error(exc: TransportError) -> str:
+    """Map transport error codes to SDGB-specific error codes where appropriate."""
+    if exc.code == "UPSTREAM_TIMEOUT":
+        return "UPSTREAM_TIMEOUT"
+    return "QR_EXCHANGE_FAILED"
 
 
 def exchange_qr(settings: SdgbPreviewSettings, qr_code: str) -> tuple[str, str]:
@@ -121,12 +102,19 @@ def exchange_qr(settings: SdgbPreviewSettings, qr_code: str) -> tuple[str, str]:
         "qrCode": qr,
         "timestamp": timestamp,
     }
-    headers = {
-        "Content-Type": "application/json",
-        "Host": "ai.sys-all.cn",
-        "User-Agent": "WC_AIME_LIB",
-    }
-    result = _post_json(settings.aime_url, payload, headers, settings.timeout_sec)
+    try:
+        result = http_post_json(
+            settings.aime_url,
+            payload,
+            headers={
+                "Host": "ai.sys-all.cn",
+                "User-Agent": "WC_AIME_LIB",
+            },
+            timeout_sec=settings.timeout_sec,
+        )
+    except TransportError as exc:
+        raise SdgbPreviewError(_map_transport_error(exc)) from exc
+
     user_id = result.get("userID")
     token = result.get("token")
     # AiMe returns HTTP 200 with errorID for one-time QR failures.
@@ -165,26 +153,23 @@ def _call_title_api(
     }
     plaintext = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     body = _aes_encrypt(settings.aes_key, settings.aes_iv, zlib.compress(plaintext))
-    request = Request(url, data=body, headers=headers, method="POST")
+
     try:
-        with urlopen(request, timeout=settings.timeout_sec) as response:  # noqa: S310
-            raw = response.read(_MAX_RESPONSE_BYTES + 1)
-    except HTTPError as exc:
-        try:
-            exc.read(_MAX_RESPONSE_BYTES)
-        except Exception:
-            pass
-        raise SdgbPreviewError("QR_EXCHANGE_FAILED") from exc
-    except (TimeoutError, URLError) as exc:
-        raise SdgbPreviewError("UPSTREAM_TIMEOUT") from exc
-    except Exception as exc:  # noqa: BLE001
-        raise SdgbPreviewError("UPSTREAM_PROTOCOL_ERROR") from exc
-    if len(raw) > _MAX_RESPONSE_BYTES:
-        raise SdgbPreviewError("UPSTREAM_PROTOCOL_ERROR")
+        _, raw = http_post(
+            url,
+            body,
+            headers=headers,
+            timeout_sec=settings.timeout_sec,
+        )
+    except TransportError as exc:
+        raise SdgbPreviewError(_map_transport_error(exc)) from exc
+
     try:
-        decoded = zlib.decompress(_aes_decrypt(settings.aes_key, settings.aes_iv, raw)).decode("utf-8")
+        decoded = zlib.decompress(
+            _aes_decrypt(settings.aes_key, settings.aes_iv, raw)
+        ).decode("utf-8")
         parsed = json.loads(decoded)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise SdgbPreviewError("UPSTREAM_PROTOCOL_ERROR") from exc
     if not isinstance(parsed, dict):
         raise SdgbPreviewError("UPSTREAM_PROTOCOL_ERROR")

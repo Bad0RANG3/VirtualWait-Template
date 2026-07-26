@@ -12,30 +12,6 @@ from virtualwait_gateway.sdgb_preview import SdgbPreviewSettings
 from virtualwait_gateway.security import identity_subject
 
 
-class FakeHeaders(dict[str, str]):
-    def get(self, key: str, default: Any = None) -> Any:  # noqa: ANN401
-        return super().get(key, default)
-
-
-class FakeResponse:
-    status = 200
-
-    def __init__(self, body: bytes) -> None:
-        self.body = body
-        self.headers = FakeHeaders({"Content-Length": str(len(body))})
-
-    def read(self, size: int = -1) -> bytes:
-        if size == -1:
-            return self.body
-        return self.body[:size]
-
-    def __enter__(self) -> "FakeResponse":
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        return None
-
-
 def _encrypt(key: str, iv: str, payload: dict[str, object]) -> bytes:
     plain = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     cipher = AES.new(key.encode("utf-8"), AES.MODE_CBC, iv.encode("utf-8"))
@@ -56,11 +32,26 @@ def test_sdgb_preview_provider_no_login_flow(monkeypatch) -> None:  # type: igno
         timeout_sec=2.0,
     )
 
-    def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
-        calls.append(request.full_url)
-        if "aime" in request.full_url:
-            body = json.dumps({"userID": 424242, "token": "preview-token"}).encode("utf-8")
-            return FakeResponse(body)
+    def fake_http_post_json(
+        url: str,
+        payload: dict[str, Any],
+        *,
+        headers: dict[str, str] | None = None,
+        timeout_sec: float = 10.0,
+        max_response_bytes: int = 64 * 1024,
+    ) -> dict[str, Any]:
+        calls.append(url)
+        return {"userID": 424242, "token": "preview-token"}
+
+    def fake_http_post(
+        url: str,
+        body: bytes,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout_sec: float = 10.0,
+        max_response_bytes: int = 64 * 1024,
+    ) -> tuple[int, bytes]:
+        calls.append(url)
         encrypted = _encrypt(
             settings.aes_key,
             settings.aes_iv,
@@ -72,9 +63,10 @@ def test_sdgb_preview_provider_no_login_flow(monkeypatch) -> None:  # type: igno
                 "banState": 0,
             },
         )
-        return FakeResponse(encrypted)
+        return (200, encrypted)
 
-    monkeypatch.setattr("virtualwait_gateway.sdgb_preview.urlopen", fake_urlopen)
+    monkeypatch.setattr("virtualwait_gateway.sdgb_preview.http_post_json", fake_http_post_json)
+    monkeypatch.setattr("virtualwait_gateway.sdgb_preview.http_post", fake_http_post)
     provider = SdgbPreviewVerificationProvider(settings, "public-secret")
     result = provider.verify("SGWCMAID" + ("A" * 56))
 
@@ -98,13 +90,10 @@ def test_sdgb_preview_expired_qr(monkeypatch) -> None:  # type: ignore[no-untype
         timeout_sec=2.0,
     )
 
-    def fake_urlopen(request, timeout: float):  # type: ignore[no-untyped-def]
-        body = json.dumps(
-            {"errorID": 1, "key": "x", "timestamp": "0", "userID": -1, "token": ""}
-        ).encode("utf-8")
-        return FakeResponse(body)
+    def fake_http_post_json(*args: object, **kwargs: object) -> dict[str, Any]:
+        return {"errorID": 1, "key": "x", "timestamp": "0", "userID": -1, "token": ""}
 
-    monkeypatch.setattr("virtualwait_gateway.sdgb_preview.urlopen", fake_urlopen)
+    monkeypatch.setattr("virtualwait_gateway.sdgb_preview.http_post_json", fake_http_post_json)
     provider = SdgbPreviewVerificationProvider(settings, "public-secret")
     result = provider.verify("SGWCMAID" + ("B" * 56))
     assert result.status == "FAILED"

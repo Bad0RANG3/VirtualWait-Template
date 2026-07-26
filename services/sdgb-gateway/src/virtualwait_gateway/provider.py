@@ -3,18 +3,44 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import re
-from typing import Any, Protocol
-from urllib.error import HTTPError, URLError
+from typing import Any, Protocol, TypedDict
 from urllib.parse import unquote
-from urllib.request import Request, urlopen
 
 from .security import identity_subject
+from .transport import http_post_json, TransportError
 from .sdgb_preview import SdgbPreviewError, SdgbPreviewSettings, preview_from_qr
 
 
 _SUBJECT = re.compile(r"^[a-f0-9]{64}$")
 _ERROR_CODE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _MAX_PROVIDER_RESPONSE_BYTES = 32 * 1024
+
+
+# Upstream JSON response shapes — documented but not validated at runtime; the
+# provider still coerces every field defensively.
+class UpstreamProfile(TypedDict, total=False):
+    displayName: str
+    playerName: str
+    name: str
+    rating: object
+    title: object
+
+
+class UpstreamVerifyResponse(TypedDict, total=False):
+    status: str
+    identityId: str
+    identitySubject: str
+    userId: str
+    aimeId: str
+    id: str
+    profile: UpstreamProfile
+    displayName: str
+    playerName: str
+    name: str
+    rating: object
+    title: object
+    errorCode: str
+    code: str
 
 
 @dataclass(frozen=True)
@@ -38,16 +64,6 @@ def _safe_error_code(value: object, default: str = "QR_EXCHANGE_FAILED") -> str:
         if _ERROR_CODE.fullmatch(normalized):
             return normalized
     return default
-
-
-def _read_json_response(response: Any) -> Any:
-    content_length = response.headers.get("Content-Length")
-    if content_length and int(content_length) > _MAX_PROVIDER_RESPONSE_BYTES:
-        raise ValueError("provider response too large")
-    body = response.read(_MAX_PROVIDER_RESPONSE_BYTES + 1)
-    if len(body) > _MAX_PROVIDER_RESPONSE_BYTES:
-        raise ValueError("provider response too large")
-    return json.loads(body.decode("utf-8"))
 
 
 def _coerce_rating(value: object) -> int | None:
@@ -132,6 +148,8 @@ class HttpVerificationProvider:
     Raw upstream identifiers are converted to VirtualWait subjects with HMAC
     before they leave the gateway. The raw QR code and full upstream response are
     never persisted by this adapter.
+
+    Redirects are **never** followed — only the initial configured URL is used.
     """
 
     def __init__(
@@ -149,36 +167,21 @@ class HttpVerificationProvider:
         self._timeout_sec = timeout_sec
 
     def verify(self, qr_code: str) -> ProviderResult:
-        request_body = json.dumps({"qrCode": qr_code}, ensure_ascii=False, separators=(",", ":")).encode(
-            "utf-8"
-        )
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json; charset=utf-8",
-            "User-Agent": "VirtualWaitGateway/0.1",
-        }
+        payload = {"qrCode": qr_code}
+        headers: dict[str, str] = {}
         if self._auth_value:
             headers[self._auth_header] = self._auth_value
-        request = Request(self._verify_url, data=request_body, headers=headers, method="POST")
         try:
-            with urlopen(request, timeout=self._timeout_sec) as response:  # noqa: S310 - URL is operator-configured and validated.
-                if getattr(response, "status", 200) >= 400:
-                    return ProviderResult(status="FAILED", error_code="QR_EXCHANGE_FAILED")
-                payload = _read_json_response(response)
-        except HTTPError as exc:
-            error_code = "QR_EXCHANGE_FAILED"
-            try:
-                payload = _read_json_response(exc)
-                if isinstance(payload, dict):
-                    error_code = _safe_error_code(payload.get("errorCode") or payload.get("code"))
-            except Exception:
-                pass
-            return ProviderResult(status="FAILED", error_code=error_code)
-        except (TimeoutError, URLError):
-            return ProviderResult(status="FAILED", error_code="UPSTREAM_TIMEOUT")
-        except Exception:
-            return ProviderResult(status="FAILED", error_code="UPSTREAM_PROTOCOL_ERROR")
-        return self._parse_payload(payload)
+            response = http_post_json(
+                self._verify_url,
+                payload,
+                headers=headers,
+                timeout_sec=self._timeout_sec,
+                max_response_bytes=_MAX_PROVIDER_RESPONSE_BYTES,
+            )
+        except TransportError:
+            return ProviderResult(status="FAILED", error_code="QR_EXCHANGE_FAILED")
+        return self._parse_payload(response)
 
     def _parse_payload(self, payload: Any) -> ProviderResult:
         if not isinstance(payload, dict):
@@ -263,4 +266,3 @@ class SdgbPreviewVerificationProvider:
     def retry_pending_logout(self, encrypted_context: bytes) -> bool:
         # Preview path never creates a cabinet login session.
         return True
-

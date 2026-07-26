@@ -87,9 +87,30 @@ class GatewayApplication:
         )
 
 
-def create_handler(application: GatewayApplication) -> Type[BaseHTTPRequestHandler]:
+def create_handler(
+    application: GatewayApplication,
+    worker_slots: BoundedSemaphore,
+) -> Type[BaseHTTPRequestHandler]:
     class GatewayHandler(BaseHTTPRequestHandler):
         server_version = "VirtualWaitGateway/0.1"
+
+        def handle(self) -> None:
+            """Set a per-connection read timeout before dispatching."""
+            try:
+                self.connection.settimeout(application.settings.request_read_timeout_sec)
+            except OSError:
+                pass
+            super().handle()
+
+        def handle_one_request(self) -> None:
+            """Acquire a bounded worker slot; close connection on overload."""
+            if not worker_slots.acquire(blocking=False):
+                self.close_connection = True
+                return
+            try:
+                super().handle_one_request()
+            finally:
+                worker_slots.release()
 
         def log_message(self, format: str, *args: Any) -> None:
             # Never let the standard handler log request paths or bodies. Production
@@ -191,7 +212,12 @@ def create_handler(application: GatewayApplication) -> Type[BaseHTTPRequestHandl
 
 def create_server(settings: Settings) -> ThreadingHTTPServer:
     application = GatewayApplication(settings)
-    server = ThreadingHTTPServer((settings.host, settings.port), create_handler(application))
+    # Cap concurrent HTTP request handlers independently of verification slots.
+    worker_slots = BoundedSemaphore(settings.max_http_workers)
+    server = ThreadingHTTPServer(
+        (settings.host, settings.port),
+        create_handler(application, worker_slots),
+    )
     # Keep the application accessible to the process-level recovery worker.
     # Request handlers still close over this exact instance.
     server.virtualwait_application = application  # type: ignore[attr-defined]

@@ -1,3 +1,4 @@
+import { ServiceError } from "../api";
 import { randomUUID } from "crypto";
 import { getDb, nowIso } from "../db";
 import { isVenueOpenNow } from "../settings";
@@ -17,7 +18,7 @@ function assertNoActiveEntry(userId: string) {
       `SELECT id FROM queue_entry WHERE user_id = ? AND status IN ('WAITING','PLAYING')`,
     )
     .get(userId) as { id: string } | undefined;
-  if (active) throw new Error("ALREADY_IN_ANOTHER_QUEUE");
+  if (active) throw new ServiceError("ALREADY_IN_ANOTHER_QUEUE");
 }
 
 export function joinQueue(
@@ -30,18 +31,18 @@ export function joinQueue(
   const userRow = db
     .prepare(`SELECT qq FROM app_user WHERE id = ?`)
     .get(userId) as { qq: string | null } | undefined;
-  if (!userRow?.qq) throw new Error("QQ_REQUIRED");
+  if (!userRow?.qq) throw new ServiceError("QQ_REQUIRED");
   const queue = db.prepare(`SELECT * FROM queue WHERE id = ?`).get(queueId) as
     | { id: string; status: string; next_sequence: number }
     | undefined;
-  if (!queue) throw new Error("QUEUE_NOT_FOUND");
-  if (queue.status !== "OPEN") throw new Error("QUEUE_NOT_OPEN");
+  if (!queue) throw new ServiceError("QUEUE_NOT_FOUND");
+  if (queue.status !== "OPEN") throw new ServiceError("QUEUE_NOT_OPEN");
   const venueRow = db
     .prepare(
       `SELECT v.slug as venue_slug FROM queue q JOIN venue v ON v.id = q.venue_id WHERE q.id = ?`,
     )
     .get(queueId) as { venue_slug: string } | undefined;
-  if (!isVenueOpenNow(venueRow?.venue_slug)) throw new Error("QUEUE_OUTSIDE_HOURS");
+  if (!isVenueOpenNow(venueRow?.venue_slug)) throw new ServiceError("QUEUE_OUTSIDE_HOURS");
   assertNoActiveEntry(userId);
   if (playMode === "DUO" && targetPartyId) return joinExistingDuo(queueId, userId, targetPartyId);
 
@@ -77,16 +78,16 @@ export function joinQueue(
 function joinExistingDuo(queueId: string, userId: string, partyId: string) {
   const db = getDb();
   const party = getParty(partyId);
-  if (!party || party.queue_id !== queueId) throw new Error("PARTY_NOT_FOUND");
-  if (party.status !== "SEEKING") throw new Error("PARTY_NOT_SEEKING");
-  if (party.host_user_id === userId) throw new Error("CANNOT_JOIN_OWN_PARTY");
-  if (party.guest_user_id) throw new Error("PARTY_FULL");
+  if (!party || party.queue_id !== queueId) throw new ServiceError("PARTY_NOT_FOUND");
+  if (party.status !== "SEEKING") throw new ServiceError("PARTY_NOT_SEEKING");
+  if (party.host_user_id === userId) throw new ServiceError("CANNOT_JOIN_OWN_PARTY");
+  if (party.guest_user_id) throw new ServiceError("PARTY_FULL");
   const host = db
     .prepare(
       `SELECT id FROM queue_entry WHERE party_id = ? AND user_id = ? AND status = 'WAITING'`,
     )
     .get(partyId, party.host_user_id) as { id: string } | undefined;
-  if (!host) throw new Error("PARTY_HOST_MISSING");
+  if (!host) throw new ServiceError("PARTY_HOST_MISSING");
   const queue = db.prepare(`SELECT next_sequence FROM queue WHERE id = ?`).get(queueId) as {
     next_sequence: number;
   };
@@ -118,13 +119,13 @@ function joinExistingDuo(queueId: string, userId: string, partyId: string) {
 export function confirmPair(partyId: string, userId: string) {
   const db = getDb();
   const party = getParty(partyId);
-  if (!party) throw new Error("PARTY_NOT_FOUND");
-  if (party.play_mode !== "DUO") throw new Error("NOT_DUO");
+  if (!party) throw new ServiceError("PARTY_NOT_FOUND");
+  if (party.play_mode !== "DUO") throw new ServiceError("NOT_DUO");
   if (party.status !== "PENDING" && party.status !== "CONFIRMED") {
-    throw new Error("INVALID_PARTY_STATUS");
+    throw new ServiceError("INVALID_PARTY_STATUS");
   }
   if (party.host_user_id !== userId && party.guest_user_id !== userId) {
-    throw new Error("FORBIDDEN");
+    throw new ServiceError("FORBIDDEN");
   }
   const now = nowIso();
   if (party.host_user_id === userId) {
@@ -164,9 +165,9 @@ export function cancelEntry(entryId: string, userId: string) {
         status: EntryStatus;
       }
     | undefined;
-  if (!entry) throw new Error("ENTRY_NOT_FOUND");
-  if (entry.user_id !== userId) throw new Error("FORBIDDEN");
-  if (entry.status !== "WAITING") throw new Error("INVALID_STATUS");
+  if (!entry) throw new ServiceError("ENTRY_NOT_FOUND");
+  if (entry.user_id !== userId) throw new ServiceError("FORBIDDEN");
+  if (entry.status !== "WAITING") throw new ServiceError("INVALID_STATUS");
   finishOrExpireEntry(entry.id, "CANCELLED", "USER", userId);
   if (entry.party_id && entry.play_mode === "DUO") {
     const party = getParty(entry.party_id);
@@ -213,31 +214,31 @@ export function confirmStartPlay(entryId: string, userId: string) {
         status: EntryStatus;
       }
     | undefined;
-  if (!entry) throw new Error("ENTRY_NOT_FOUND");
-  if (entry.user_id !== userId) throw new Error("FORBIDDEN");
-  if (entry.status !== "WAITING") throw new Error("INVALID_STATUS");
+  if (!entry) throw new ServiceError("ENTRY_NOT_FOUND");
+  if (entry.user_id !== userId) throw new ServiceError("FORBIDDEN");
+  if (entry.status !== "WAITING") throw new ServiceError("INVALID_STATUS");
 
   const queue = db.prepare(`SELECT id, status FROM queue WHERE id = ?`).get(entry.queue_id) as
     | { id: string; status: string }
     | undefined;
-  if (!queue) throw new Error("QUEUE_NOT_FOUND");
-  if (queue.status !== "OPEN") throw new Error("QUEUE_NOT_OPEN");
+  if (!queue) throw new ServiceError("QUEUE_NOT_FOUND");
+  if (queue.status !== "OPEN") throw new ServiceError("QUEUE_NOT_OPEN");
 
   const members = activeMembers(entry);
   const isDuo = entry.play_mode === "DUO" && Boolean(entry.party_id);
   if (isDuo) {
-    if (members.length !== 2) throw new Error("NOT_HEAD_OF_QUEUE");
+    if (members.length !== 2) throw new ServiceError("NOT_HEAD_OF_QUEUE");
     if (getParty(entry.party_id)?.status !== "CONFIRMED") {
-      throw new Error("PAIR_NOT_CONFIRMED");
+      throw new ServiceError("PAIR_NOT_CONFIRMED");
     }
   } else if (members.length !== 1 || members[0].id !== entry.id) {
-    throw new Error("INVALID_STATUS");
+    throw new ServiceError("INVALID_STATUS");
   }
 
   const busy = db
     .prepare(`SELECT id FROM queue_entry WHERE queue_id = ? AND status = 'PLAYING' LIMIT 1`)
     .get(entry.queue_id) as { id: string } | undefined;
-  if (busy) throw new Error("MACHINE_BUSY");
+  if (busy) throw new ServiceError("MACHINE_BUSY");
 
   // First waiting slot only (PLAYING rows sort first and do not count).
   const waiting = db
@@ -253,7 +254,7 @@ export function confirmStartPlay(entryId: string, userId: string) {
     play_mode: PlayMode;
     sequence_number: number;
   }>;
-  if (waiting.length === 0) throw new Error("NOT_HEAD_OF_QUEUE");
+  if (waiting.length === 0) throw new ServiceError("NOT_HEAD_OF_QUEUE");
   const head = waiting[0]!;
   const headKey =
     head.party_id && head.play_mode === "DUO" ? `party:${head.party_id}` : `solo:${head.id}`;
@@ -261,7 +262,7 @@ export function confirmStartPlay(entryId: string, userId: string) {
     entry.party_id && entry.play_mode === "DUO"
       ? `party:${entry.party_id}`
       : `solo:${entry.id}`;
-  if (headKey !== myKey) throw new Error("NOT_HEAD_OF_QUEUE");
+  if (headKey !== myKey) throw new ServiceError("NOT_HEAD_OF_QUEUE");
 
   startEntries(
     entry.queue_id,
@@ -279,9 +280,9 @@ export function finishPlay(entryId: string, userId: string) {
     .get(entryId) as
     | { id: string; queue_id: string; user_id: string; status: EntryStatus }
     | undefined;
-  if (!entry) throw new Error("ENTRY_NOT_FOUND");
-  if (entry.user_id !== userId) throw new Error("FORBIDDEN");
-  if (entry.status !== "PLAYING") throw new Error("INVALID_STATUS");
+  if (!entry) throw new ServiceError("ENTRY_NOT_FOUND");
+  if (entry.user_id !== userId) throw new ServiceError("FORBIDDEN");
+  if (entry.status !== "PLAYING") throw new ServiceError("INVALID_STATUS");
   finishOrExpireEntry(entry.id, "DONE", "USER", userId);
   processTimeouts(entry.queue_id);
 }

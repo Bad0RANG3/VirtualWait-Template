@@ -1,3 +1,4 @@
+import { ServiceError } from "../api";
 import { getDb, nowIso } from "../db";
 import { shanghaiDayKey } from "./time";
 
@@ -19,7 +20,7 @@ export function assertIpCanBindUser(ipHash: string, userId: string): void {
     .get(ipHash, day) as { user_id: string } | undefined;
 
   if (existing && existing.user_id !== userId) {
-    throw new Error("IP_ACCOUNT_BOUND");
+    throw new ServiceError("IP_ACCOUNT_BOUND");
   }
 }
 

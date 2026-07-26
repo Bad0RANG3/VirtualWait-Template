@@ -1,3 +1,4 @@
+import { ServiceError } from "../api";
 import { getDb, nowIso } from "../db";
 import {
   venueBySlug,
@@ -290,11 +291,11 @@ export function updateVenueMeta(
   const regionName = input.regionName.trim().slice(0, 40);
   const regionKind = input.regionKind;
   if (regionKind && regionKind !== "district" && regionKind !== "county") {
-    throw new Error("INVALID_REGION_KIND");
+    throw new ServiceError("INVALID_REGION_KIND");
   }
   const machineCount = Math.floor(input.machineCount);
   if (!Number.isFinite(machineCount) || machineCount < 0 || machineCount > 999) {
-    throw new Error("INVALID_MACHINE_COUNT");
+    throw new ServiceError("INVALID_MACHINE_COUNT");
   }
   const hours = normalizeVenueHours(input.openMinute, input.closeMinute);
   const groupUmo = (input.groupUmo ?? "").trim().slice(0, 200);
@@ -303,7 +304,7 @@ export function updateVenueMeta(
   const existing = db
     .prepare(`SELECT id, slug FROM venue WHERE id = ?`)
     .get(venueId) as { id: string; slug: string } | undefined;
-  if (!existing) throw new Error("VENUE_NOT_FOUND");
+  if (!existing) throw new ServiceError("VENUE_NOT_FOUND");
 
   db.prepare(
     `UPDATE venue
@@ -329,7 +330,7 @@ export function updateVenueMeta(
   );
 
   const venue = getVenueMetaBySlug(existing.slug);
-  if (!venue) throw new Error("VENUE_NOT_FOUND");
+  if (!venue) throw new ServiceError("VENUE_NOT_FOUND");
   return venue;
 }
 
@@ -341,13 +342,13 @@ export function updateMachineMeta(
 ) {
   const coinCost = Math.floor(input.coinCost);
   if (!Number.isFinite(coinCost) || coinCost < 1 || coinCost > 99) {
-    throw new Error("INVALID_COIN_COST");
+    throw new ServiceError("INVALID_COIN_COST");
   }
   const db = getDb();
   const existing = db
     .prepare(`SELECT id FROM queue WHERE id = ?`)
     .get(machineId) as { id: string } | undefined;
-  if (!existing) throw new Error("QUEUE_NOT_FOUND");
+  if (!existing) throw new ServiceError("QUEUE_NOT_FOUND");
 
   db.prepare(
     `UPDATE queue
@@ -377,6 +378,6 @@ export function updateMachineMeta(
         venue_slug: string;
       }
     | undefined;
-  if (!row) throw new Error("QUEUE_NOT_FOUND");
+  if (!row) throw new ServiceError("QUEUE_NOT_FOUND");
   return mapMachineRow(row);
 }

@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { getClientIp, hashIp } from "@/lib/auth/ip";
-import { loginAttemptUser, resolveLoginAttempt } from "@/lib/auth/login-attempt";
-import { setSession } from "@/lib/auth/session";
+import { resolveLoginAttempt } from "@/lib/auth/login-attempt";
 import { consumeRateLimit } from "@/lib/auth/rate-limit";
 import { getDb, nowIso } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -9,7 +8,11 @@ import { jsonError, jsonOk, mapServiceError } from "@/lib/api";
 
 const paramsSchema = z.object({ attemptId: z.string().uuid() });
 
-/** Poll an in-flight login without re-submitting a QR code. */
+/**
+ * Poll an in-flight login attempt.  This endpoint is read-only — it never
+ * sets a session cookie.  The client must present a one-time completion
+ * capability to ``POST /api/auth/attempts/:id/complete`` to finalise login.
+ */
 export async function GET(
   req: Request,
   ctx: { params: Promise<{ attemptId: string }> }
@@ -52,18 +55,20 @@ export async function GET(
       ).run(nowIso(), attempt.id);
       throw new Error("AUTH_ATTEMPT_NOT_FOUND");
     }
-    if (attempt.status === "SUCCEEDED" && attempt.user_id) {
-      await setSession(attempt.user_id, ipHash);
-      return jsonOk({ attemptId, status: "SUCCEEDED", user: loginAttemptUser(attempt.user_id) });
+
+    // Terminal states — return status only, no session mutation.
+    if (attempt.status === "SUCCEEDED") {
+      return jsonOk({ attemptId, status: "SUCCEEDED" });
     }
     if (attempt.status === "FAILED" || !attempt.gateway_job_id) {
       return mapServiceError(new Error(attempt.error_code || "GATEWAY_FAILED"));
     }
 
+    // Defer gateway polling to the resolve helper — success/failure is
+    // persisted but we still do not set a session here.
     const resolved = await resolveLoginAttempt(attempt.id, attempt.gateway_job_id, ipHash);
     if (resolved.status === "SUCCEEDED") {
-      await setSession(resolved.userId, ipHash);
-      return jsonOk({ attemptId, status: "SUCCEEDED", user: loginAttemptUser(resolved.userId) });
+      return jsonOk({ attemptId, status: "SUCCEEDED" });
     }
     if (resolved.status === "FAILED") {
       return mapServiceError(new Error(resolved.errorCode || "GATEWAY_FAILED"));

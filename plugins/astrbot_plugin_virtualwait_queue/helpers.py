@@ -10,6 +10,11 @@ logger = logging.getLogger("astrbot.plugin.virtualwait_queue")
 
 
 def build_head_key(machine_slug: str, players: list[dict[str, Any]]) -> str:
+    """Build a de-identified head key from player QQ hashes.
+
+    The returned key is used only for cooldown-tracking inside the plugin
+    process.  It never appears in logs or on the wire.
+    """
     qqs = sorted(
         {
             str(p.get("qq") or "").strip()
@@ -81,14 +86,21 @@ def build_call_reminder(reminder_minutes: int = 3) -> str:
 
 
 def parse_json_object(raw: Any) -> dict[str, str]:
+    """Safely parse a routing/config value into a str->str dict.
+
+    Only catches JSON decode and type errors — never swallows arbitrary
+    exceptions.  Logs a de-identified warning on parse failures.
+    """
     if isinstance(raw, dict):
         return {str(k): str(v) for k, v in raw.items()}
     if not raw:
         return {}
     try:
         data = json.loads(str(raw))
-        if isinstance(data, dict):
-            return {str(k): str(v) for k, v in data.items()}
-    except Exception:
-        logger.warning("invalid routing json: %s", raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        logger.warning("invalid routing json (parse failed, raw omitted)")
+        return {}
+    if isinstance(data, dict):
+        return {str(k): str(v) for k, v in data.items()}
+    logger.warning("routing json is not a dict (type=%s)", type(data).__name__)
     return {}

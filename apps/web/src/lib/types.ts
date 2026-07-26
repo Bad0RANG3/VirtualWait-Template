@@ -117,3 +117,39 @@ export interface PublicQueueSnapshot {
   entries: QueueEntryView[];
   slots: QueueSlotView[];
 }
+
+// ---------------------------------------------------------------------------
+// Admin dashboard view types (reused by AdminDashboard and its sub-components)
+// ---------------------------------------------------------------------------
+
+export interface AdminQueueView {
+  id: string;
+  name: string;
+  slug: string;
+  status: QueueStatus;
+  venueName: string;
+}
+
+export interface AdminEntryView {
+  id: string;
+  queueName: string;
+  venueName: string;
+  nickname: string;
+  status: "WAITING" | "PLAYING";
+  version: number;
+  isDuo: boolean;
+}
+
+export interface AdminAuditEvent {
+  id: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  metadata: unknown;
+  createdAt: string;
+}
+
+export interface AdminTimeouts {
+  playingTimeoutSec: number;
+  headConfirmTimeoutSec: number;
+}

@@ -1,0 +1,5 @@
+# Locked test dependencies for virtualwait-sdgb-gateway.
+# Regenerate with: pip-compile pyproject.toml --extra=test --generate-hashes
+pytest==9.0.3
+httpx==0.28.1
+jsonschema==4.26.0

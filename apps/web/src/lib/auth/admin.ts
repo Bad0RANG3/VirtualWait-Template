@@ -1,3 +1,4 @@
+import { ServiceError } from "../api";
 import { env } from "../env";
 import { safeEqual, signPayload } from "../crypto";
 import { cookies } from "next/headers";
@@ -48,7 +49,7 @@ export async function hasAdminSession() {
 
 /** Require a server-only bearer token for operational APIs. */
 export async function requireAdmin(req: Request): Promise<string> {
-  if (!env.adminApiToken) throw new Error("ADMIN_DISABLED");
+  if (!env.adminApiToken) throw new ServiceError("ADMIN_DISABLED");
   const authorization = req.headers.get("authorization") || "";
   const prefix = "Bearer ";
   if (authorization.startsWith(prefix)) {
@@ -56,5 +57,5 @@ export async function requireAdmin(req: Request): Promise<string> {
     if (safeEqual(token, env.adminApiToken)) return "token-admin";
   }
   if (await hasAdminSession()) return "cookie-admin";
-  throw new Error("ADMIN_UNAUTHORIZED");
+  throw new ServiceError("ADMIN_UNAUTHORIZED");
 }

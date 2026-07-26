@@ -1,3 +1,4 @@
+import { ServiceError } from "../api";
 import { getDb, nowIso } from "../db";
 import type { EntryStatus, PlayMode } from "../types";
 import {
@@ -19,7 +20,7 @@ export function setQueueStatus(
   const existing = db.prepare(`SELECT id FROM queue WHERE id = ?`).get(queueId) as
     | { id: string }
     | undefined;
-  if (!existing) throw new Error("QUEUE_NOT_FOUND");
+  if (!existing) throw new ServiceError("QUEUE_NOT_FOUND");
   db.prepare(`UPDATE queue SET status = ?, updated_at = ? WHERE id = ?`).run(
     status,
     nowIso(),
@@ -96,68 +97,72 @@ export function adminEntryAction(
         version: number;
       }
     | undefined;
-  if (!entry) throw new Error("ENTRY_NOT_FOUND");
-  if (entry.version !== expectedVersion) throw new Error("ENTRY_VERSION_CONFLICT");
+  if (!entry) throw new ServiceError("ENTRY_NOT_FOUND");
+  if (entry.version !== expectedVersion) throw new ServiceError("ENTRY_VERSION_CONFLICT");
 
   const members = activeMembers(entry);
   const isDuo = entry.play_mode === "DUO" && Boolean(entry.party_id);
-  if (isDuo && members.length !== 2) throw new Error("ADMIN_ACTION_NOT_ALLOWED");
+  if (isDuo && members.length !== 2) throw new ServiceError("ADMIN_ACTION_NOT_ALLOWED");
   const allStatus = (status: EntryStatus) => members.every((member) => member.status === status);
 
   if (action === "START") {
-    if (!allStatus("WAITING")) throw new Error("ADMIN_ACTION_NOT_ALLOWED");
+    if (!allStatus("WAITING")) throw new ServiceError("ADMIN_ACTION_NOT_ALLOWED");
     if (isDuo && getParty(entry.party_id)?.status !== "CONFIRMED") {
-      throw new Error("ADMIN_ACTION_NOT_ALLOWED");
+      throw new ServiceError("ADMIN_ACTION_NOT_ALLOWED");
     }
     const busy = db
       .prepare(`SELECT id FROM queue_entry WHERE queue_id = ? AND status = 'PLAYING' LIMIT 1`)
       .get(entry.queue_id) as { id: string } | undefined;
-    if (busy) throw new Error("ADMIN_ACTION_NOT_ALLOWED");
+    if (busy) throw new ServiceError("ADMIN_ACTION_NOT_ALLOWED");
   } else if (action === "REQUEUE") {
     if (!allStatus(entry.status) || !["WAITING", "PLAYING"].includes(entry.status)) {
-      throw new Error("ADMIN_ACTION_NOT_ALLOWED");
+      throw new ServiceError("ADMIN_ACTION_NOT_ALLOWED");
     }
   } else if (action === "CANCEL") {
-    if (!allStatus("WAITING")) throw new Error("ADMIN_ACTION_NOT_ALLOWED");
+    if (!allStatus("WAITING")) throw new ServiceError("ADMIN_ACTION_NOT_ALLOWED");
   } else if (!allStatus("PLAYING")) {
-    throw new Error("ADMIN_ACTION_NOT_ALLOWED");
+    throw new ServiceError("ADMIN_ACTION_NOT_ALLOWED");
   }
 
-  const claim = db
-    .prepare(
-      `UPDATE queue_entry SET version = version + 1, updated_at = ?
-       WHERE id = ? AND version = ?`,
-    )
-    .run(nowIso(), entry.id, expectedVersion) as { changes?: number };
-  if (claim.changes !== 1) throw new Error("ENTRY_VERSION_CONFLICT");
+  // Claim version and execute action in a single transaction so a crash
+  // between the claim and the action cannot leave a stranded version bump.
+  db.transaction(() => {
+    const claim = db
+      .prepare(
+        `UPDATE queue_entry SET version = version + 1, updated_at = ?
+         WHERE id = ? AND version = ?`,
+      )
+      .run(nowIso(), entry.id, expectedVersion) as { changes?: number };
+    if (claim.changes !== 1) throw new ServiceError("ENTRY_VERSION_CONFLICT");
 
-  if (action === "START") {
-    startEntries(
-      entry.queue_id,
-      members.map((member) => member.id),
-      "ADMIN",
-      adminId,
-      "admin_start",
-    );
-  } else if (action === "REQUEUE") {
-    if (!requeueToEnd(entry.queue_id, entry.id, [entry.status])) {
-      throw new Error("ADMIN_ACTION_NOT_ALLOWED");
-    }
-  } else if (action === "CANCEL") {
-    for (const member of members) {
-      finishOrExpireEntry(member.id, "CANCELLED", "ADMIN", adminId, "admin_cancel");
-    }
-    if (isDuo) {
-      db.prepare(`UPDATE queue_party SET status = 'DISBANDED', updated_at = ? WHERE id = ?`).run(
-        nowIso(),
-        entry.party_id,
+    if (action === "START") {
+      startEntries(
+        entry.queue_id,
+        members.map((member) => member.id),
+        "ADMIN",
+        adminId,
+        "admin_start",
       );
+    } else if (action === "REQUEUE") {
+      if (!requeueToEnd(entry.queue_id, entry.id, [entry.status])) {
+        throw new ServiceError("ADMIN_ACTION_NOT_ALLOWED");
+      }
+    } else if (action === "CANCEL") {
+      for (const member of members) {
+        finishOrExpireEntry(member.id, "CANCELLED", "ADMIN", adminId, "admin_cancel");
+      }
+      if (isDuo) {
+        db.prepare(`UPDATE queue_party SET status = 'DISBANDED', updated_at = ? WHERE id = ?`).run(
+          nowIso(),
+          entry.party_id,
+        );
+      }
+    } else {
+      for (const member of members) {
+        finishOrExpireEntry(member.id, "DONE", "ADMIN", adminId, "admin_finish");
+      }
     }
-  } else {
-    for (const member of members) {
-      finishOrExpireEntry(member.id, "DONE", "ADMIN", adminId, "admin_finish");
-    }
-  }
+  })();
 
   audit("ENTRY_ADMIN_ACTION", "queue_entry", entry.id, "ADMIN", adminId, {
     action,

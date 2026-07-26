@@ -7,7 +7,6 @@ import {
 } from "../settings";
 import type { PublicQueueSnapshot } from "../types";
 import { getQueueBySlug, listActiveEntries, type PartyRow } from "./core";
-import { processTimeouts } from "./timeouts";
 import { buildSlots } from "./views";
 
 type VenueLiveRow = {
@@ -35,7 +34,8 @@ export function getPublicQueue(
 ): PublicQueueSnapshot | null {
   const queue = getQueueBySlug(venueSlug, machineSlug);
   if (!queue) return null;
-  processTimeouts(queue.id);
+  // Timeout processing is handled by write operations and the maintenance
+  // loop — GET must remain side-effect-free for safe caching/prefetching.
   const active = listActiveEntries(queue.id);
   const parties = new Map<string, PartyRow>();
   const partyRows = getDb()

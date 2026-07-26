@@ -26,6 +26,10 @@ from helpers import (
     resolve_umo,
 )
 
+# Cap on upstream response bytes before we reject (prevents unbounded
+# buffering on a compromised/misconfigured upstream).
+_DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024
+
 
 @register(
     "virtualwait_queue",
@@ -85,8 +89,10 @@ class VirtualWaitQueueNotify(Star):
                 self._backoff = 0.0
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:
-                logger.exception("poll failed: %s", exc)
+            except Exception:
+                # Log a de-identified event — never include the exception text
+                # which may carry upstream response bodies.
+                logger.warning("poll cycle failed (backoff=%.1f)", self._backoff)
                 self._backoff = min(
                     float(self._cfg("max_backoff_sec", 120) or 120),
                     max(5.0, (self._backoff or 5.0) * 2),
@@ -116,15 +122,39 @@ class VirtualWaitQueueNotify(Star):
             self._last_stats_at = now
 
     async def _request(self, path: str) -> dict[str, Any]:
+        """Fetch a VirtualWait Bot API endpoint with bounded response reading.
+
+        The response is read in chunks and capped at *max_response_bytes*.
+        HTTP error bodies are never interpolated into log messages.
+        """
         base = str(self._cfg("base_url", "") or "").rstrip("/")
         token = str(self._cfg("bot_token", "") or "")
         if not base or not token:
             raise RuntimeError("base_url/bot_token not configured")
         assert self._session is not None
+        max_bytes = int(self._cfg("max_response_bytes", _DEFAULT_MAX_RESPONSE_BYTES)
+                        or _DEFAULT_MAX_RESPONSE_BYTES)
         url = f"{base}{path}"
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         async with self._session.get(url, headers=headers) as resp:
-            body = await resp.json(content_type=None)
+            # Read the response body in bounded chunks.
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk, _ in resp.content.iter_chunks():
+                total += len(chunk)
+                if total > max_bytes:
+                    raise RuntimeError(
+                        "HTTP %d: response exceeds %d bytes" % (resp.status, max_bytes)
+                    )
+                chunks.append(chunk)
+            body_bytes = b"".join(chunks)
+            try:
+                body = json.loads(body_bytes.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                if resp.status >= 400:
+                    raise RuntimeError("HTTP %d (non-json error body)" % resp.status)
+                raise RuntimeError("invalid JSON response")
+
             if resp.status == 429:
                 retry = 5
                 if isinstance(body, dict):
@@ -134,9 +164,9 @@ class VirtualWaitQueueNotify(Star):
                     float(self._cfg("max_backoff_sec", 120) or 120),
                     max(float(retry), (self._backoff or 5.0) * 2),
                 )
-                raise RuntimeError(f"RATE_LIMITED retryAfter={retry}")
+                raise RuntimeError("RATE_LIMITED retryAfter=%d" % retry)
             if resp.status >= 400:
-                raise RuntimeError(f"HTTP {resp.status}: {body}")
+                raise RuntimeError("HTTP %d" % resp.status)
             return body if isinstance(body, dict) else {}
 
     async def _poll_once(self):
@@ -170,15 +200,6 @@ class VirtualWaitQueueNotify(Star):
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-        # clear cold machines last_head optionally when not in hot set
-        hot_keys = {
-            f"{m.get('venueSlug')}/{m.get('machineSlug')}" for m in hot
-        }
-        for key in list(self._last_head.keys()):
-            if key not in hot_keys:
-                # keep last_head for cooldown identity; only clear when empty head below
-                pass
-
     async def _handle_machine(
         self,
         machine: dict[str, Any],
@@ -204,8 +225,6 @@ class VirtualWaitQueueNotify(Star):
 
         players = list(head.get("players") or [])
         head_key = build_head_key(mslug, players)
-        if not head_key.endswith("_") and head_key != f"{mslug}_":
-            pass
         qqs = [
             str(p.get("qq") or "").strip()
             for p in players
@@ -222,7 +241,6 @@ class VirtualWaitQueueNotify(Star):
             return
         if prev == head_key:
             return
-        # first observation after empty should notify; prev "" -> notify
         now = time.time()
         until = self._cooldown_until.get(head_key, 0)
         if until > now:
@@ -266,22 +284,24 @@ class VirtualWaitQueueNotify(Star):
                 chain = chain_parts  # type: ignore
             await self.context.send_message(umo, chain)
         except Exception:
-            logger.exception("send_message failed umo=%s", umo)
-            # do not set cooldown on failure so next round can retry
-            # 哦吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼吼
+            # Log de-identified; never emit UMO or QQ in failure logs.
+            logger.warning(
+                "send_message failed venue=%s machine=%s recipients=%d",
+                venue, mslug, len(qqs),
+            )
+            # Do not set cooldown on failure so next round can retry.
             self._last_head[cache_key] = prev if prev is not None else ""
             return
 
         self._cooldown_until[head_key] = now + cooldown_sec
+        # Success event is de-identified: count and venue/machine slugs only.
         logger.info(
             json.dumps(
                 {
                     "event": "queue_notify",
                     "venueSlug": venue,
                     "machineSlug": mslug,
-                    "qq": qqs,
-                    "umo": umo,
-                    "cooldown_key": head_key,
+                    "recipients": len(qqs),
                 },
                 ensure_ascii=False,
             )

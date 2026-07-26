@@ -1,13 +1,13 @@
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { setSession } from "@/lib/auth/session";
-import { loginAttemptUser, resolveLoginAttempt } from "@/lib/auth/login-attempt";
+import { resolveLoginAttempt } from "@/lib/auth/login-attempt";
 import { getClientIp, hashIp } from "@/lib/auth/ip";
 import { bindIpToUser } from "@/lib/auth/ip-binding";
 import {
   releaseQrSlot,
   reserveQrVerification,
 } from "@/lib/auth/rate-limit";
+import { createCompletionCapability } from "@/lib/auth/completion-capability";
 import { getDb, nowIso, addSeconds } from "@/lib/db";
 import { createVerificationJob } from "@/lib/gateway/client";
 import {
@@ -25,7 +25,11 @@ const schema = z.object({
 
 /**
  * Primary login: exchange maimai QR once, identify by userid (HMAC),
- * issue day-scoped cookie, enforce one account per IP per day.
+ * enforce one account per IP per day.
+ *
+ * The response includes a one-time *completionToken* that the client must
+ * present to ``POST /api/auth/attempts/:id/complete`` to finalise the
+ * session.  Neither this endpoint nor the polling GET set a cookie.
  */
 export async function POST(req: Request) {
   let slotId: string | null = null;
@@ -75,10 +79,17 @@ export async function POST(req: Request) {
       }
       if (existing.status === "SUCCEEDED" && existing.user_id) {
         bindIpToUser(ipHash, existing.user_id);
-        await setSession(existing.user_id, ipHash);
-        const user = loginAttemptUser(existing.user_id);
-        return jsonOk({ attemptId: existing.id, status: "SUCCEEDED", user });
+        // Issue a fresh completion capability — the original may have been
+        // consumed or expired.
+        const completionToken = createCompletionCapability(existing.id);
+        return jsonOk({
+          attemptId: existing.id,
+          status: "SUCCEEDED",
+          completionToken,
+        });
       }
+      // Still processing — return status but no new token (the original
+      // completionToken from the first POST is still valid).
       return jsonOk({ attemptId: existing.id, status: existing.status });
     }
 
@@ -91,13 +102,16 @@ export async function POST(req: Request) {
        VALUES (?, NULL, NULL, 'LOGIN_BIND', ?, ?, ?, 'PROCESSING', ?, ?, ?)`
     ).run(attemptId, jobId, idem, ipHash, addSeconds(now, 120), now, now);
 
+    // Issue a completion capability before resolving — the client needs it
+    // regardless of whether resolution is synchronous or deferred.
+    const completionToken = createCompletionCapability(attemptId);
+
     const result = await resolveLoginAttempt(attemptId, jobId, ipHash);
     if (result.status === "SUCCEEDED") {
-      await setSession(result.userId, ipHash);
       return jsonOk({
         attemptId,
         status: "SUCCEEDED",
-        user: loginAttemptUser(result.userId),
+        completionToken,
       });
     }
 
@@ -105,7 +119,7 @@ export async function POST(req: Request) {
       return mapServiceError(new Error(result.errorCode || "GATEWAY_FAILED"));
     }
 
-    return jsonOk({ attemptId, status: "PROCESSING" });
+    return jsonOk({ attemptId, status: "PROCESSING", completionToken });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return jsonError("INVALID_REQUEST", err.errors[0]?.message || "参数无效");

@@ -1,4 +1,4 @@
-import { addSeconds, nowIso } from "../db";
+import { addSeconds } from "../db";
 import { getHeadConfirmTimeoutSec } from "../settings";
 import type {
   EntryStatus,
@@ -136,14 +136,14 @@ export function buildSlots(
       slot.members.map((member) => member.head_eligible_at).find((value) => Boolean(value)) ||
       null;
     // Head waiting on a free machine gets a confirm countdown (even if duo not ready yet).
+    // Only show a countdown when a real eligibility timestamp exists —
+    // otherwise `nowIso()` would reset the deadline on every view.
     const headTimerActive =
-      !machineBusy && slot.status === "WAITING" && position === 1;
+      !machineBusy && slot.status === "WAITING" && position === 1 && Boolean(headEligibleAt);
     const deadlineAt =
       headTimerActive && headEligibleAt
         ? addSeconds(headEligibleAt, getHeadConfirmTimeoutSec())
-        : headTimerActive
-          ? addSeconds(nowIso(), getHeadConfirmTimeoutSec())
-          : null;
+        : null;
     const views = slot.members.map((member) =>
       toEntryView(
         member,

@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { getDb, nowIso } from "../db";
 import { env } from "../env";
 
@@ -110,7 +111,7 @@ export function acquireQrSlot(): { id: string } | null {
     .get() as { c: number };
   if (count.c >= env.qrMaxConcurrent) return null;
 
-  const id = `${now}:${Math.random().toString(36).slice(2, 12)}`;
+  const id = `${now}:${randomUUID()}`;
   try {
     db.prepare(
       `INSERT INTO qr_concurrency_slot (id, created_at_ms) VALUES (?, ?)`

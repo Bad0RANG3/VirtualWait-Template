@@ -1,0 +1,3 @@
+# Locked dependencies for virtualwait-sdgb-gateway.
+# Regenerate with: pip-compile pyproject.toml --generate-hashes
+pycryptodome==3.23.0

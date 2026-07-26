@@ -1,0 +1,3 @@
+# Locked dependencies for astrbot_plugin_virtualwait_queue.
+# Regenerate with: pip freeze | grep aiohttp
+aiohttp>=3.9.0,<4.0

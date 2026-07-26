@@ -1,3 +1,4 @@
+import { ServiceError } from "../api";
 import { env } from "../env";
 import { safeEqual } from "../crypto";
 
@@ -9,12 +10,12 @@ function botToken(): string {
 /** Require BOT_API_TOKEN bearer for machine-to-machine bot routes. */
 export function requireBot(req: Request): void {
   const expected = botToken();
-  if (!expected) throw new Error("BOT_DISABLED");
+  if (!expected) throw new ServiceError("BOT_DISABLED");
   const authorization = req.headers.get("authorization") || "";
   const prefix = "Bearer ";
-  if (!authorization.startsWith(prefix)) throw new Error("BOT_UNAUTHORIZED");
+  if (!authorization.startsWith(prefix)) throw new ServiceError("BOT_UNAUTHORIZED");
   const token = authorization.slice(prefix.length);
   if (!token || !safeEqual(token, expected)) {
-    throw new Error("BOT_UNAUTHORIZED");
+    throw new ServiceError("BOT_UNAUTHORIZED");
   }
 }

@@ -1,3 +1,4 @@
+import { ServiceError } from "../api";
 import { bindIpToUser } from "./ip-binding";
 import { getUserById, upsertMaimaiUser } from "./session";
 import { getDb, nowIso } from "../db";
@@ -72,6 +73,6 @@ export async function resolveLoginAttempt(
 
 export function loginAttemptUser(userId: string) {
   const user = getUserById(userId);
-  if (!user) throw new Error("GATEWAY_FAILED");
+  if (!user) throw new ServiceError("GATEWAY_FAILED");
   return user;
 }

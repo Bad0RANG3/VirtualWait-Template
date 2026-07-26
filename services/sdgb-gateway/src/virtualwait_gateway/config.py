@@ -104,6 +104,9 @@ class Settings:
     sdgb_timeout_sec: float = 10.0
     # Retry durable LOGGING_OUT jobs while the Gateway process remains alive.
     recovery_interval_sec: int = 5
+    # HTTP server hardening
+    max_http_workers: int = 10
+    request_read_timeout_sec: float = 10.0
 
     @property
     def production(self) -> bool:
@@ -206,4 +209,6 @@ class Settings:
             sdgb_client_id=sdgb_client_id,
             sdgb_timeout_sec=sdgb_timeout_sec,
             recovery_interval_sec=_positive_int("VW_GATEWAY_RECOVERY_INTERVAL_SEC", 5),
+            max_http_workers=_positive_int("VW_GATEWAY_MAX_HTTP_WORKERS", 10),
+            request_read_timeout_sec=_positive_float("VW_GATEWAY_REQUEST_READ_TIMEOUT_SEC", 10.0),
         )

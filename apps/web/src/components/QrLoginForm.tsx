@@ -18,6 +18,7 @@ export function QrLoginForm({
     setBusy(true);
     setError(null);
     try {
+      // 1. Submit QR code and get attempt + completion capability.
       const res = await fetch("/api/auth/qr", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -27,12 +28,16 @@ export function QrLoginForm({
       if (!res.ok) {
         throw new Error(data?.error?.message || "登录失败");
       }
+
       let current = data;
+
+      // 2. Poll until the Gateway resolves the attempt.
       for (let i = 0; current.status === "PROCESSING" && i < 30; i += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 2_000));
-        const poll = await fetch(`/api/auth/attempts/${encodeURIComponent(current.attemptId)}`, {
-          cache: "no-store",
-        });
+        const poll = await fetch(
+          `/api/auth/attempts/${encodeURIComponent(current.attemptId)}`,
+          { cache: "no-store" }
+        );
         current = await poll.json();
         if (!poll.ok) {
           throw new Error(current?.error?.message || "验证状态查询失败");
@@ -41,6 +46,22 @@ export function QrLoginForm({
       if (current.status === "PROCESSING") {
         throw new Error("验证仍在处理中，请稍后重试");
       }
+
+      // 3. Complete login with the one-time capability token.
+      const completionToken = data.completionToken;
+      if (!completionToken) {
+        throw new Error("登录失败：缺少完成凭据");
+      }
+      const complete = await fetch("/api/auth/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attemptId: current.attemptId, completionToken }),
+      });
+      const completeData = await complete.json();
+      if (!complete.ok) {
+        throw new Error(completeData?.error?.message || "登录完成失败");
+      }
+
       router.push(redirectTo);
       router.refresh();
     } catch (err) {

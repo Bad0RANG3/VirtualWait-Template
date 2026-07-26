@@ -156,12 +156,25 @@ try {
   });
   assert.equal(crossSite.status, 403, "cross-site state change must be rejected");
 
+  // Phase 1: submit QR → receives attemptId + completionToken (no cookie yet).
   const login = await post(baseUrl, "/api/auth/qr", { qrCode: "mock:e2e-user:E2EUser:14500:Test" });
-  assert.equal(login.status, 200, "remote signed login should succeed");
-  const userCookie = cookie(login);
+  assert.equal(login.status, 200, "remote signed login should return an attempt");
   const loginBody = await login.json();
   assert.equal(loginBody.status, "SUCCEEDED");
-  assert.equal(loginBody.user.nickname, "E2EUser");
+  const completionToken = loginBody.completionToken;
+  assert.ok(completionToken, "login should return a completion token");
+
+  // Phase 2: complete the attempt with the one-time token → session cookie.
+  const complete = await post(
+    baseUrl,
+    "/api/auth/complete",
+    { attemptId: loginBody.attemptId, completionToken },
+  );
+  assert.equal(complete.status, 200, "completion should set the session cookie");
+  const userCookie = cookie(complete);
+  const completeBody = await complete.json();
+  assert.equal(completeBody.status, "SUCCEEDED");
+  assert.equal(completeBody.user.nickname, "E2EUser");
 
   const bindQq = await patch(
     baseUrl,
