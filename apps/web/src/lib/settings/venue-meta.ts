@@ -1,3 +1,7 @@
+/**
+ * 场地/机台元数据 CRUD：getVenueMeta/updateVenueMeta/updateMachineMeta、
+ * getVenueHoursBySlug/isVenueOpenNow。
+ */
 import { ServiceError } from "../api";
 import { getDb, nowIso } from "../db";
 import {

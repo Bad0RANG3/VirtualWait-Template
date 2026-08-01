@@ -32,8 +32,8 @@ export async function GET(
     const db = getDb();
     const attempt = db
       .prepare(
-        `SELECT id, status, gateway_job_id, user_id, request_ip_hash, expires_at, error_code
-         FROM join_attempt WHERE id = ? AND purpose = 'LOGIN_BIND'`
+        `SELECT id, status, gateway_job_id, user_id, request_ip_hash, expires_at, error_code, result_json
+         FROM join_attempt WHERE id = ? AND purpose IN ('LOGIN_BIND','REGISTER_BIND')`
       )
       .get(attemptId) as
       | {
@@ -44,6 +44,7 @@ export async function GET(
           request_ip_hash: string | null;
           expires_at: string;
           error_code: string | null;
+          result_json: string | null;
         }
       | undefined;
     if (!attempt || attempt.request_ip_hash !== ipHash) {
@@ -56,9 +57,22 @@ export async function GET(
       throw new Error("AUTH_ATTEMPT_NOT_FOUND");
     }
 
-    // Terminal states — return status only, no session mutation.
+    // Terminal states — return status only, no session mutation. A resolved
+    // bind attempt carries its public profile for the client to display.
     if (attempt.status === "SUCCEEDED") {
-      return jsonOk({ attemptId, status: "SUCCEEDED" });
+      let profile: unknown;
+      if (attempt.result_json) {
+        try {
+          profile = (JSON.parse(attempt.result_json) as { profile?: unknown }).profile;
+        } catch {
+          // ignore malformed legacy rows; the client only needs the status
+        }
+      }
+      return jsonOk({
+        attemptId,
+        status: "SUCCEEDED",
+        ...(profile ? { profile } : {}),
+      });
     }
     if (attempt.status === "FAILED" || !attempt.gateway_job_id) {
       return mapServiceError(new Error(attempt.error_code || "GATEWAY_FAILED"));

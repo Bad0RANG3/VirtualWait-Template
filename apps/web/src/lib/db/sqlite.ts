@@ -1,3 +1,6 @@
+/**
+ * node:sqlite 轻封装：openDatabase、Db（exec/prepare/pragma/transaction）、Statement。
+ */
 import { DatabaseSync } from "node:sqlite";
 
 type SqlParam = string | number | null | bigint | Uint8Array;

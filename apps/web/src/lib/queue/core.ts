@@ -1,3 +1,7 @@
+/**
+ * 队列核心原语：audit、getParty、startEntries、requeueToEnd、
+ * finishOrExpireEntry、listActiveEntries 及行类型。
+ */
 import { randomUUID } from "crypto";
 import { getDb, nowIso } from "../db";
 import type { EntryStatus, PartyStatus, PlayMode } from "../types";

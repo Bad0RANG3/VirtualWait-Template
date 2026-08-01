@@ -107,6 +107,12 @@ test("maintenance applies configured privacy retention policies", async () => {
             ('audit-recent', 'SYSTEM', NULL, 'RECENT', 'queue_entry', 'entry-recent', '{}', 'req-recent', ?)`,
   ).run("2026-03-01T00:00:00.000Z", recent);
 
+  db.prepare(
+    `INSERT INTO session (id, user_id, ip_hash, issued_at_ms, revoked_at_ms)
+     VALUES ('sess-old', 'history-user', ?, ?, NULL),
+            ('sess-recent', 'active-user', ?, ?, NULL)`,
+  ).run("d".repeat(64), new Date(old).getTime(), "e".repeat(64), new Date(recent).getTime());
+
   const result = runMaintenance(now);
 
   assert.equal(result.terminalQueueEntriesDeleted, 1);
@@ -114,6 +120,7 @@ test("maintenance applies configured privacy retention policies", async () => {
   assert.equal(result.auditEventsDeleted, 1);
   assert.equal(result.expiredIpDayBindingsDeleted, 1);
   assert.equal(result.staleProfilesScrubbed, 1);
+  assert.equal(result.expiredSessionsDeleted, 1);
 
   assert.equal(
     scalar(db, "SELECT id FROM queue_entry WHERE id = ?", "entry-old"),
@@ -160,6 +167,18 @@ test("maintenance applies configured privacy retention policies", async () => {
       }
     ).id,
     "audit-recent",
+  );
+  assert.equal(
+    scalar(db, "SELECT id FROM session WHERE id = ?", "sess-old"),
+    undefined,
+  );
+  assert.equal(
+    (
+      scalar(db, "SELECT id FROM session WHERE id = ?", "sess-recent") as {
+        id: string;
+      }
+    ).id,
+    "sess-recent",
   );
 
   const stale = scalar(

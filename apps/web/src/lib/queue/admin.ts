@@ -1,3 +1,7 @@
+/**
+ * 管理操作：setQueueStatus、listAuditEvents、listAdminActiveEntries、
+ * adminEntryAction（START/REQUEUE/CANCEL/FINISH，version 乐观锁）。
+ */
 import { ServiceError } from "../api";
 import { getDb, nowIso } from "../db";
 import type { EntryStatus, PlayMode } from "../types";

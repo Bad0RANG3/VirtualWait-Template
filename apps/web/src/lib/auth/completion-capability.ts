@@ -8,6 +8,10 @@ import { getDb } from "../db";
  * ``POST /api/auth/complete`` within the attempt's lifetime.  The
  * server-side only stores a SHA-256 hash so a database leak cannot
  * produce valid tokens.
+ *
+ * Tokens live in their own table: sharing the QR concurrency-slot table
+ * would let unconsumed tokens block new QR logins (and the slot cleanup
+ * could delete a token before the client used it).
  */
 
 /** Generate a fresh capability for *attemptId* and return the raw token. */
@@ -16,8 +20,8 @@ export function createCompletionCapability(attemptId: string): string {
   const token = randomToken(32);
   const hash = sha256Hex(token);
   db.prepare(
-    `INSERT INTO qr_concurrency_slot (id, created_at_ms) VALUES (?, ?)`
-  ).run(`completion:${attemptId}:${hash}`, Date.now());
+    `INSERT INTO completion_token (id, attempt_id, created_at_ms) VALUES (?, ?, ?)`,
+  ).run(`completion:${attemptId}:${hash}`, attemptId, Date.now());
   return token;
 }
 
@@ -32,11 +36,19 @@ export function consumeCompletionCapability(
   const hash = sha256Hex(token);
   const slotId = `completion:${attemptId}:${hash}`;
   const row = db
-    .prepare(`SELECT id FROM qr_concurrency_slot WHERE id = ?`)
+    .prepare(`SELECT id FROM completion_token WHERE id = ?`)
     .get(slotId) as { id: string } | undefined;
   if (!row) return false;
-  // Single-use: delete immediately.  qr_concurrency_slot rows are
-  // ephemeral and already cleaned up by maintenance.
-  db.prepare(`DELETE FROM qr_concurrency_slot WHERE id = ?`).run(slotId);
+  // Single-use: delete immediately.  Stale tokens are purged by maintenance.
+  db.prepare(`DELETE FROM completion_token WHERE id = ?`).run(slotId);
   return true;
+}
+
+/** Maintenance: purge capabilities that outlived their attempt lifetime. */
+export function cleanupExpiredCompletionCapabilities(olderThanMs: number): number {
+  const db = getDb();
+  const result = db
+    .prepare(`DELETE FROM completion_token WHERE created_at_ms < ?`)
+    .run(olderThanMs) as { changes?: number };
+  return result.changes ?? 0;
 }

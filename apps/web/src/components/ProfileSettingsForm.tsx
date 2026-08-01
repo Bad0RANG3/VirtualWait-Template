@@ -34,7 +34,6 @@ export function ProfileSettingsForm({ user }: { user: SessionUser }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error?.message || "保存失败");
       if (data.user?.qq != null) setQq(data.user.qq || "");
-      else if (data.user) setQq(data.user.qq || "");
       setOk("已保存");
       router.refresh();
     } catch (err) {

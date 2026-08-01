@@ -1,3 +1,6 @@
+/**
+ * SQLite 连接单例：首次 getDb() 建库/执行 schema、migrate、seed，并开启 WAL 与外键。
+ */
 import fs from "fs";
 import path from "path";
 import { SCHEMA_SQL } from "./schema";

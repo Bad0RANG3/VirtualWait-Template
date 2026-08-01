@@ -1,3 +1,7 @@
+/**
+ * 环境变量集中解析与校验：类型化 `env` 对象、生产环境不安全密钥检查
+ * （占位符/弱密钥/明文 https 决策）。
+ */
 function num(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
@@ -187,6 +191,8 @@ export const env = {
   transientDataRetentionSec: num("TRANSIENT_DATA_RETENTION_SEC", 86_400),
   /** Retain inactive fixed-window rate-limit counters before maintenance removes them. */
   rateLimitBucketRetentionSec: num("RATE_LIMIT_BUCKET_RETENTION_SEC", 3_600),
+  /** Max different maimai accounts one client IP may bind per Shanghai day. */
+  ipAccountQuotaPerDay: num("IP_ACCOUNT_QUOTA_PER_DAY", 5),
   /** Remove expired per-day IP/account bindings after this many Shanghai calendar days. */
   ipBindingRetentionDays: num("IP_BINDING_RETENTION_DAYS", 2),
   /** Scrub stale SDGB profile/IP metadata for inactive accounts after this many days. */

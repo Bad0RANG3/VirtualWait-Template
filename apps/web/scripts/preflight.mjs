@@ -11,10 +11,11 @@ function unsafeProductionSecret(value) {
   return !value || value.length < 32 || unsafeSecretPatterns.some((pattern) => pattern.test(value));
 }
 
-function validAppUrl(value) {
+function validAppUrl(value, { requireHttps = false } = {}) {
   try {
     const url = new URL(value);
     if (url.username || url.password) return false;
+    if (requireHttps) return url.protocol === "https:";
     return url.protocol === "http:" || url.protocol === "https:";
   } catch {
     return false;
@@ -49,8 +50,14 @@ if (production) {
   if (process.env.TRUST_PROXY_HEADERS !== "true") {
     failures.push("TRUST_PROXY_HEADERS must be true behind a sanitizing reverse proxy");
   }
-  if (!validAppUrl(process.env.APP_BASE_URL)) {
+  const allowInsecureAppUrl = process.env.ALLOW_INSECURE_APP_URL === "true";
+  const appUrl = process.env.APP_BASE_URL;
+  if (!validAppUrl(appUrl)) {
     failures.push("APP_BASE_URL must be an HTTP or HTTPS URL without credentials");
+  } else if (!allowInsecureAppUrl && !validAppUrl(appUrl, { requireHttps: true })) {
+    failures.push(
+      "APP_BASE_URL must be HTTPS in production (set ALLOW_INSECURE_APP_URL=true only for behind-the-firewall deployments)",
+    );
   }
   if (!validGatewayUrl(process.env.GATEWAY_BASE_URL)) {
     failures.push("GATEWAY_BASE_URL must be HTTPS or unauthenticated loopback HTTP (127.0.0.1/[::1])");

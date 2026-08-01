@@ -1,3 +1,7 @@
+/**
+ * 超时处理：游玩超时重排队尾；队头确认窗口组级打点（duo 取最早戳）——
+ * 独组 strike 后重打、二次超时整组 CANCELLED + party DISBANDED。
+ */
 import { addSeconds, getDb, nowIso } from "../db";
 import { getHeadConfirmTimeoutSec, getPlayingTimeoutSec } from "../settings";
 import type { PlayMode } from "../types";

@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MachineAccent } from "@/lib/constants/catalog";
-import type { PublicQueueSnapshot, SessionUser } from "@/lib/types";
+import type { PublicQueueSnapshot, QueueEntryView, QueueSlotView, SessionUser } from "@/lib/types";
 import { coerceVenueHours, isWithinHours } from "@/lib/time/hours";
 import { Gamepad2, LogOut, UserPlus } from "lucide-react";
 
@@ -10,6 +10,9 @@ import { statusLabel, statusClass, partyStatusLabel, formatRemain } from "./queu
 import { QueueStatusHeader } from "./queue/QueueStatusHeader";
 import { DuoDiscoveryList } from "./queue/DuoDiscoveryList";
 import { QueueSlotList } from "./queue/QueueSlotList";
+
+const POLL_BASE_MS = 3500;
+const POLL_MAX_MS = 30_000;
 
 export function QueueBoard({
   venueSlug, machineSlug, machineName, accent, initial, user,
@@ -22,18 +25,48 @@ export function QueueBoard({
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(0);
   const [joinMode, setJoinMode] = useState<"SOLO" | "DUO">("SOLO");
+  const pollAbortRef = useRef<AbortController | null>(null);
+  const failStreakRef = useRef(0);
 
   const refresh = useCallback(async () => {
-    const res = await fetch(`/api/queues/${venueSlug}/${machineSlug}/public`, { cache: "no-store" });
-    if (!res.ok) return;
-    setData(await res.json() as PublicQueueSnapshot);
+    // Never let two polls overlap: abort the in-flight request.
+    pollAbortRef.current?.abort();
+    const abort = new AbortController();
+    pollAbortRef.current = abort;
+    try {
+      const res = await fetch(`/api/queues/${venueSlug}/${machineSlug}/public`, {
+        cache: "no-store",
+        signal: abort.signal,
+      });
+      if (!res.ok) throw new Error(`poll ${res.status}`);
+      setData(await res.json() as PublicQueueSnapshot);
+      failStreakRef.current = 0;
+    } catch (err) {
+      // A superseded or unmounted poll is not a failure.
+      if (abort.signal.aborted) return;
+      // Exponential backoff so a down API does not hammer the server.
+      failStreakRef.current = Math.min(failStreakRef.current + 1, 8);
+    } finally {
+      if (pollAbortRef.current === abort) pollAbortRef.current = null;
+    }
   }, [venueSlug, machineSlug]);
 
   useEffect(() => {
     setNowMs(Date.now());
-    const t = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 3500);
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      const delay = Math.min(POLL_BASE_MS * 2 ** failStreakRef.current, POLL_MAX_MS);
+      void refresh();
+      window.setTimeout(tick, delay);
+    };
+    const timer = window.setTimeout(tick, POLL_BASE_MS);
     const clock = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => { clearInterval(t); clearInterval(clock); };
+    return () => {
+      clearTimeout(timer);
+      clearInterval(clock);
+      pollAbortRef.current?.abort();
+      pollAbortRef.current = null;
+    };
   }, [refresh]);
 
   const myEntry = useMemo(() => data.entries.find((e) => e.isMine) || null, [data.entries]);
@@ -122,6 +155,13 @@ export function QueueBoard({
       )}
 
       <QueueSlotList slots={data.slots} />
+      {data.totalWaiting >
+        data.entries.filter((e) => e.status === "WAITING").length && (
+        <p className="text-center text-xs text-ink-400">
+          队列较长，仅展示前 {data.entries.filter((e) => e.status === "WAITING").length} 人 · 共{" "}
+          {data.totalWaiting} 人排队
+        </p>
+      )}
     </div>
   );
 }
@@ -129,14 +169,16 @@ export function QueueBoard({
 // ---- internal helpers (moved out for readability) ----
 
 function MySlotActions({ myEntry, busy, accentBtn, act }: {
-  myEntry: NonNullable<ReturnType<typeof useMemo<unknown>>>, busy: string | null, accentBtn: string,
+  myEntry: QueueEntryView, busy: string | null, accentBtn: string,
   act: (path: string, body?: unknown, key?: string) => Promise<void>,
 }) {
   return (
     <div className="flex flex-wrap gap-2">
       {myEntry.status === "PLAYING" && (
         <button className="btn-primary" disabled={busy === "finish"}
-          onClick={() => act(`/api/entries/${myEntry.id}/finish`, undefined, "finish")}>结束游玩</button>
+          onClick={() => act(`/api/entries/${myEntry.id}/finish`, undefined, "finish")}>
+          {busy === "finish" ? "结束中…" : "结束游玩"}
+        </button>
       )}
       {myEntry.status === "WAITING" && myEntry.canConfirmStart && (
         <button className={accentBtn} disabled={busy === "start"}
@@ -147,13 +189,13 @@ function MySlotActions({ myEntry, busy, accentBtn, act }: {
       {myEntry.status === "WAITING" && (
         <button className="btn-ghost" disabled={busy === "cancel"}
           onClick={() => act(`/api/entries/${myEntry.id}/cancel`, undefined, "cancel")}>
-          <LogOut className="h-4 w-4" />卸卡
+          <LogOut className="h-4 w-4" />{busy === "cancel" ? "卸卡中…" : "卸卡"}
         </button>
       )}
       {myEntry.party?.canConfirmPair && (
         <button className="btn-mint" disabled={busy === "pair"}
           onClick={() => act(`/api/parties/${myEntry.party!.id}/confirm`, undefined, "pair")}>
-          <UserPlus className="h-4 w-4" />确认拼机
+          <UserPlus className="h-4 w-4" />{busy === "pair" ? "确认中…" : "确认拼机"}
         </button>
       )}
     </div>
@@ -161,8 +203,8 @@ function MySlotActions({ myEntry, busy, accentBtn, act }: {
 }
 
 function MySlotCard({ mySlot, myEntry, data, nowMs }: {
-  mySlot: NonNullable<ReturnType<typeof useMemo<unknown>>>,
-  myEntry: NonNullable<ReturnType<typeof useMemo<unknown>>>,
+  mySlot: QueueSlotView,
+  myEntry: QueueEntryView | null,
   data: PublicQueueSnapshot, nowMs: number,
 }) {
   const deadline = myEntry?.headConfirmDeadlineAt;

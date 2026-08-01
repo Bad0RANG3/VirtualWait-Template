@@ -1,3 +1,7 @@
+/**
+ * 全量 DDL（SCHEMA_SQL）与增量迁移（MIGRATIONS_SQL）：队列、审计、
+ * 防滥用（ip_day_binding）、completion_token、session 等表。
+ */
 export const SCHEMA_SQL = `
 PRAGMA foreign_keys = ON;
 
@@ -132,7 +136,7 @@ CREATE TABLE IF NOT EXISTS ip_day_binding (
   user_id TEXT NOT NULL REFERENCES app_user(id),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  PRIMARY KEY (ip_hash, day_key)
+  PRIMARY KEY (ip_hash, day_key, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS rate_limit_bucket (
@@ -145,6 +149,20 @@ CREATE TABLE IF NOT EXISTS rate_limit_bucket (
 CREATE TABLE IF NOT EXISTS qr_concurrency_slot (
   id TEXT PRIMARY KEY,
   created_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS completion_token (
+  id TEXT PRIMARY KEY,
+  attempt_id TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS session (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES app_user(id),
+  ip_hash TEXT NOT NULL,
+  issued_at_ms INTEGER NOT NULL,
+  revoked_at_ms INTEGER
 );
 `;
 

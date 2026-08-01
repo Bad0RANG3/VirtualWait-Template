@@ -1,3 +1,6 @@
+/**
+ * Bot 身份认证：requireBot 校验 BOT_API_TOKEN Bearer 头（常量时间比较）。
+ */
 import { ServiceError } from "../api";
 import { env } from "../env";
 import { safeEqual } from "../crypto";

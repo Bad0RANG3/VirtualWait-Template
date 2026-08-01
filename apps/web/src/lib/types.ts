@@ -1,3 +1,6 @@
+/**
+ * 共享领域类型：队列/条目状态机、公开快照、会话用户、管理端视图。
+ */
 export type QueueStatus = "OPEN" | "PAUSED" | "CLOSED";
 
 export type EntryStatus =
@@ -116,6 +119,8 @@ export interface PublicQueueSnapshot {
   now: string;
   entries: QueueEntryView[];
   slots: QueueSlotView[];
+  /** Total waiting entries (including ones truncated from `entries`). */
+  totalWaiting: number;
 }
 
 // ---------------------------------------------------------------------------

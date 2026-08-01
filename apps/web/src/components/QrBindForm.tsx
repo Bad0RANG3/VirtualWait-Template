@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQrVerificationFlow } from "./hooks/useQrVerificationFlow";
 
 export function QrBindForm({
   purpose,
@@ -14,40 +15,31 @@ export function QrBindForm({
 }) {
   const router = useRouter();
   const [qrCode, setQrCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const { busy, error, setError, submit } = useQrVerificationFlow();
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setBusy(true);
-    setError(null);
     setOk(null);
     try {
-      const res = await fetch("/api/bind", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ qrCode, purpose }),
+      // Submit the QR and poll until the Gateway resolves the attempt,
+      // so a PROCESSING response is never mistaken for success.
+      const result = await submit({
+        endpoint: "/api/bind",
+        body: { qrCode, purpose },
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error?.message || "刷新失败");
-      }
+      const profile = result.profile;
       setOk(
-        `已更新：${data.profile?.displayName || "OK"}${
-          typeof data.profile?.rating === "number"
-            ? ` · Rating ${data.profile.rating}`
-            : ""
-        }`
+        `已更新：${profile?.displayName || "OK"}${
+          typeof profile?.rating === "number" ? ` · Rating ${profile.rating}` : ""
+        }`,
       );
-      setTimeout(() => {
+      window.setTimeout(() => {
         router.push(redirectTo);
         router.refresh();
       }, 500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "刷新失败");
-    } finally {
-      setBusy(false);
     }
   }
 

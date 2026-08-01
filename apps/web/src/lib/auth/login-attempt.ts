@@ -1,7 +1,12 @@
+/**
+ * 登录尝试落库：消费 Gateway 验证结果 → upsert 用户、执行 IP 绑定
+ * （配额失败回滚新建账号并记审计）、写 join_attempt.result_json。
+ */
 import { ServiceError } from "../api";
 import { bindIpToUser } from "./ip-binding";
 import { getUserById, upsertMaimaiUser } from "./session";
 import { getDb, nowIso } from "../db";
+import { audit } from "../queue/core";
 import { getVerificationJob } from "../gateway/client";
 
 export type LoginAttemptResult =
@@ -33,6 +38,13 @@ export async function resolveLoginAttempt(
     return { status: "PROCESSING" };
   }
 
+  // Remember whether the user row existed before upsert so a failed IP
+  // binding can roll back a newly created account instead of leaving an
+  // orphan user behind.
+  const preExisting = db
+    .prepare(`SELECT id FROM app_user WHERE sdgb_identity_hash = ?`)
+    .get(result.identityHash) as { id: string } | undefined;
+
   const userId = upsertMaimaiUser({
     identityHash: result.identityHash,
     sdgbUserIdCipher: null,
@@ -55,6 +67,14 @@ export async function resolveLoginAttempt(
        SET status = 'FAILED', error_code = 'IP_ACCOUNT_BOUND', user_id = ?, updated_at = ?
        WHERE id = ?`
     ).run(userId, now, attemptId);
+    audit("IP_BINDING_QUOTA_HIT", "ip_day_binding", ipHash, "USER", userId, {
+      reason: "per-day account quota exceeded",
+    });
+    if (!preExisting) {
+      // A fresh account was created only for this login; drop it so the
+      // quota failure does not leave orphan users behind.
+      db.prepare(`DELETE FROM app_user WHERE id = ?`).run(userId);
+    }
     throw err;
   }
 

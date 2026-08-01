@@ -38,7 +38,7 @@ export function DuoDiscoveryList({
                 disabled={busy === key || !canJoin}
                 onClick={() => onJoin(slot.party!.id)}>
                 <UserPlus className="h-4 w-4" />
-                {canJoin ? "加入" : `开放 ${openLabel}`}
+                {busy === key ? "加入中…" : canJoin ? "加入" : `开放 ${openLabel}`}
               </button>
             </li>
           );

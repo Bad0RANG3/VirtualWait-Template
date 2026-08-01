@@ -1,3 +1,6 @@
+/**
+ * Bot 视图：getBotCatalog、getBotQueueDetail、botHeadCooldownKey（头冷却键）。
+ */
 import { getDb, nowIso } from "../db";
 import { CITIES, venueBySlug } from "../constants/catalog";
 import { getVenueMetaBySlug, isVenueOpenNow } from "../settings";

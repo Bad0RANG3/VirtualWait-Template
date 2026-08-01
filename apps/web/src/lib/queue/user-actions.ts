@@ -1,3 +1,7 @@
+/**
+ * 用户操作入口：joinQueue（SOLO/DUO/拼机，事务内序号 + 唯一索引兜底并发 +
+ * 原子抢位）、confirmPair、cancelEntry、confirmStartPlay、finishPlay、getUserActiveEntries。
+ */
 import { ServiceError } from "../api";
 import { randomUUID } from "crypto";
 import { getDb, nowIso } from "../db";
@@ -11,6 +15,11 @@ import {
   startEntries,
 } from "./core";
 import { processTimeouts } from "./timeouts";
+
+/** node:sqlite surfaces the one-active-entry-per-user unique index as this. */
+function isUniqueConstraint(err: unknown): boolean {
+  return err instanceof Error && /UNIQUE constraint failed/i.test(err.message);
+}
 
 function assertNoActiveEntry(userId: string) {
   const active = getDb()
@@ -49,24 +58,38 @@ export function joinQueue(
   const now = nowIso();
   const entryId = randomUUID();
   const partyId = playMode === "DUO" ? randomUUID() : null;
-  db.transaction(() => {
-    if (partyId) {
+  try {
+    db.transaction(() => {
+      if (partyId) {
+        db.prepare(
+          `INSERT INTO queue_party
+           (id, queue_id, play_mode, status, host_user_id, guest_user_id, host_confirmed, guest_confirmed, created_at, updated_at)
+           VALUES (?, ?, 'DUO', 'SEEKING', ?, NULL, 1, 0, ?, ?)`,
+        ).run(partyId, queueId, userId, now, now);
+      }
+      // Allocate the sequence number inside the transaction so two
+      // concurrent joins cannot read the same next_sequence value.
+      db.prepare(`UPDATE queue SET next_sequence = next_sequence + 1, updated_at = ? WHERE id = ?`).run(
+        now,
+        queueId,
+      );
+      const sequenceNumber = (
+        db
+          .prepare(`SELECT next_sequence FROM queue WHERE id = ?`)
+          .get(queueId) as { next_sequence: number }
+      ).next_sequence - 1;
       db.prepare(
-        `INSERT INTO queue_party
-         (id, queue_id, play_mode, status, host_user_id, guest_user_id, host_confirmed, guest_confirmed, created_at, updated_at)
-         VALUES (?, ?, 'DUO', 'SEEKING', ?, NULL, 1, 0, ?, ?)`,
-      ).run(partyId, queueId, userId, now, now);
-    }
-    db.prepare(`UPDATE queue SET next_sequence = next_sequence + 1, updated_at = ? WHERE id = ?`).run(
-      now,
-      queueId,
-    );
-    db.prepare(
-      `INSERT INTO queue_entry
-       (id, queue_id, user_id, party_id, play_mode, sequence_number, status, version, joined_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'WAITING', 1, ?, ?, ?)`,
-    ).run(entryId, queueId, userId, partyId, playMode, queue.next_sequence, now, now, now);
-  })();
+        `INSERT INTO queue_entry
+         (id, queue_id, user_id, party_id, play_mode, sequence_number, status, version, joined_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'WAITING', 1, ?, ?, ?)`,
+      ).run(entryId, queueId, userId, partyId, playMode, sequenceNumber, now, now, now);
+    })();
+  } catch (err) {
+    // The partial unique index (one active entry per user) is the final
+    // authority when two requests pass assertNoActiveEntry concurrently.
+    if (isUniqueConstraint(err)) throw new ServiceError("ALREADY_IN_ANOTHER_QUEUE");
+    throw err;
+  }
   audit("ENTRY_JOINED", "queue_entry", entryId, "USER", userId, {
     queueId,
     playMode,
@@ -81,34 +104,74 @@ function joinExistingDuo(queueId: string, userId: string, partyId: string) {
   if (!party || party.queue_id !== queueId) throw new ServiceError("PARTY_NOT_FOUND");
   if (party.status !== "SEEKING") throw new ServiceError("PARTY_NOT_SEEKING");
   if (party.host_user_id === userId) throw new ServiceError("CANNOT_JOIN_OWN_PARTY");
-  if (party.guest_user_id) throw new ServiceError("PARTY_FULL");
+  if (party.guest_user_id) {
+    // Idempotent retry of the same request: return the entry already claimed.
+    if (party.guest_user_id === userId) {
+      const existing = db
+        .prepare(
+          `SELECT id FROM queue_entry WHERE party_id = ? AND user_id = ? AND status = 'WAITING'`,
+        )
+        .get(partyId, userId) as { id: string } | undefined;
+      if (existing) return { entryId: existing.id, partyId };
+    }
+    throw new ServiceError("PARTY_FULL");
+  }
   const host = db
     .prepare(
       `SELECT id FROM queue_entry WHERE party_id = ? AND user_id = ? AND status = 'WAITING'`,
     )
     .get(partyId, party.host_user_id) as { id: string } | undefined;
   if (!host) throw new ServiceError("PARTY_HOST_MISSING");
-  const queue = db.prepare(`SELECT next_sequence FROM queue WHERE id = ?`).get(queueId) as {
-    next_sequence: number;
-  };
   const now = nowIso();
   const entryId = randomUUID();
-  db.transaction(() => {
-    db.prepare(`UPDATE queue SET next_sequence = next_sequence + 1, updated_at = ? WHERE id = ?`).run(
-      now,
-      queueId,
-    );
-    db.prepare(
-      `INSERT INTO queue_entry
-       (id, queue_id, user_id, party_id, play_mode, sequence_number, status, version, joined_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'DUO', ?, 'WAITING', 1, ?, ?, ?)`,
-    ).run(entryId, queueId, userId, partyId, queue.next_sequence, now, now, now);
-    db.prepare(
-      `UPDATE queue_party
-       SET guest_user_id = ?, status = 'PENDING', host_confirmed = 0, guest_confirmed = 0, updated_at = ?
-       WHERE id = ? AND status = 'SEEKING'`,
-    ).run(userId, now, partyId);
-  })();
+  let claimed: boolean;
+  try {
+    claimed = db.transaction(() => {
+      // Atomic seat claim: the guarded UPDATE is the single arbiter when
+      // two users try to join the same party concurrently. The second one
+      // sees changes === 0 and gets PARTY_FULL instead of an orphan entry.
+      const claim = db
+        .prepare(
+          `UPDATE queue_party
+           SET guest_user_id = ?, status = 'PENDING', host_confirmed = 0, guest_confirmed = 0, updated_at = ?
+           WHERE id = ? AND status = 'SEEKING' AND guest_user_id IS NULL`,
+        )
+        .run(userId, now, partyId);
+      if ((claim.changes ?? 0) === 0) return false;
+      db.prepare(`UPDATE queue SET next_sequence = next_sequence + 1, updated_at = ? WHERE id = ?`).run(
+        now,
+        queueId,
+      );
+      const sequenceNumber = (
+        db
+          .prepare(`SELECT next_sequence FROM queue WHERE id = ?`)
+          .get(queueId) as { next_sequence: number }
+      ).next_sequence - 1;
+      db.prepare(
+        `INSERT INTO queue_entry
+         (id, queue_id, user_id, party_id, play_mode, sequence_number, status, version, joined_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'DUO', ?, 'WAITING', 1, ?, ?, ?)`,
+      ).run(entryId, queueId, userId, partyId, sequenceNumber, now, now, now);
+      return true;
+    })();
+  } catch (err) {
+    if (isUniqueConstraint(err)) throw new ServiceError("ALREADY_IN_ANOTHER_QUEUE");
+    throw err;
+  }
+  if (!claimed) {
+    // Lost the seat to a concurrent request. If that request was ours
+    // (duplicate submit racing itself), surface the entry we did claim.
+    const fresh = getParty(partyId);
+    if (fresh?.guest_user_id === userId) {
+      const existing = db
+        .prepare(
+          `SELECT id FROM queue_entry WHERE party_id = ? AND user_id = ? AND status = 'WAITING'`,
+        )
+        .get(partyId, userId) as { id: string } | undefined;
+      if (existing) return { entryId: existing.id, partyId };
+    }
+    throw new ServiceError("PARTY_FULL");
+  }
   audit("PARTY_JOINED", "queue_party", partyId, "USER", userId, {
     entryId,
     hostEntryId: host.id,

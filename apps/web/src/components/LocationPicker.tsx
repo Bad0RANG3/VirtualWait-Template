@@ -2,33 +2,17 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { districtPath, queuePath } from "@/lib/constants/catalog";
+import {
+  districtPath,
+  queuePath,
+  type CityDef,
+} from "@/lib/constants/catalog";
 
-export type PickerMachine = {
-  slug: string;
-  name: string;
-};
-
-export type PickerVenue = {
-  slug: string;
-  name: string;
-  machines: PickerMachine[];
-};
-
-export type PickerDistrict = {
-  slug: string;
-  name: string;
-  kind: "district" | "county";
-  venues: PickerVenue[];
-};
-
-export type PickerCity = {
-  slug: string;
-  name: string;
-  districts: PickerDistrict[];
-};
-
-export function LocationPicker({ cities }: { cities: PickerCity[] }) {
+/**
+ * Cascading location picker backed directly by the canonical catalog
+ * types (CityDef) so it can never drift from the /city directory pages.
+ */
+export function LocationPicker({ cities }: { cities: readonly CityDef[] }) {
   const router = useRouter();
   const [citySlug, setCitySlug] = useState(cities[0]?.slug || "");
   const city = useMemo(

@@ -48,7 +48,7 @@
 | `/city/[citySlug]` | 区/县列表 |
 | `/city/[citySlug]/[districtSlug]` | 场地与机台卡片（含活跃排队人数） |
 | `/queue/[venueSlug]/[machineSlug]` | 机台公开队列板 |
-| `/login` `/register` `/bind` `/me` | 登录与个人 |
+| `/login` `/bind` `/me` | 登录与个人（注册已并入登录页） |
 | `/admin` | 管理员运维台 |
 
 静态目录定义在 [`apps/web/src/lib/constants/catalog.ts`](../apps/web/src/lib/constants/catalog.ts)。

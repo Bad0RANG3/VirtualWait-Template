@@ -1,3 +1,6 @@
+/**
+ * 密码学原语：sha256/HMAC/随机令牌/常量时间比较/载荷签名（HMAC-SHA256）。
+ */
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { env } from "./env";
 

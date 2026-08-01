@@ -1,3 +1,7 @@
+/**
+ * API 公共原语：错误码→HTTP 映射、JSON 响应、同源校验、请求体读取、
+ * 以及用户/管理员权限包装（withUser / withAdmin）。
+ */
 import { NextResponse } from "next/server";
 import { env } from "./env";
 
@@ -11,7 +15,6 @@ const ERROR_MAP: Record<string, [number, string]> = {
   QUEUE_NOT_FOUND: [404, "队列不存在"],
   QUEUE_NOT_OPEN: [409, "队列未开放"],
   QUEUE_OUTSIDE_HOURS: [409, "当前不在开放时间"],
-  ALREADY_IN_QUEUE: [409, "你已在该队列中"],
   ALREADY_IN_ANOTHER_QUEUE: [409, "你已在其他机台排队，请先卸卡"],
   ENTRY_NOT_FOUND: [404, "排队记录不存在"],
   FORBIDDEN: [403, "无权操作该记录"],
@@ -31,7 +34,6 @@ const ERROR_MAP: Record<string, [number, string]> = {
   INVALID_REGION_KIND: [400, "区县类型无效"],
   INVALID_VENUE_HOURS: [400, "开放时间无效，结束须晚于开始"],
   VENUE_NOT_FOUND: [404, "场地不存在"],
-  NOT_BOUND: [409, "请先绑定舞萌数据"],
   PARTY_NOT_FOUND: [404, "拼机队伍不存在"],
   PARTY_NOT_SEEKING: [409, "该拼机位已不可加入"],
   PARTY_FULL: [409, "该拼机位已满"],
@@ -45,7 +47,6 @@ const ERROR_MAP: Record<string, [number, string]> = {
   RATE_LIMITED: [429, "请求过于频繁，请稍后再试"],
   QR_BUSY: [429, "当前登录人数较多，请稍后再试"],
   GATEWAY_CREATE_FAILED: [502, "舞萌验证服务暂不可用"],
-  SESSION_IP_MISMATCH: [401, "登录环境已变化，请重新扫码"],
   GATEWAY_FAILED: [502, "舞萌验证失败，请重试"],
   QR_EXPIRED: [400, "二维码已过期或已使用，请重新打开微信二维码"],
   QR_EXCHANGE_FAILED: [502, "二维码验证失败，请重试"],

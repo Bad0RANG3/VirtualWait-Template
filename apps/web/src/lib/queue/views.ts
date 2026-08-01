@@ -1,3 +1,6 @@
+/**
+ * 行→对外视图：buildSlots、toPartyView、toEntryView（位置、canConfirmStart、公开资料脱敏）。
+ */
 import { addSeconds } from "../db";
 import { getHeadConfirmTimeoutSec } from "../settings";
 import type {

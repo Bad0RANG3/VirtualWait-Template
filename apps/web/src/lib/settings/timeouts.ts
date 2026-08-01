@@ -1,3 +1,6 @@
+/**
+ * 超时设置：app_settings 表读写游玩/队头确认超时（DB 优先、env 兜底，带范围校验）。
+ */
 import { getDb, nowIso } from "../db";
 import { env } from "../env";
 

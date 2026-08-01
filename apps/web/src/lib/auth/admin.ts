@@ -1,3 +1,7 @@
+/**
+ * 管理端认证：vw_admin Cookie 签发/校验/清除，requireAdmin 支持
+ * Bearer ADMIN_API_TOKEN 或 Cookie。
+ */
 import { ServiceError } from "../api";
 import { env } from "../env";
 import { safeEqual, signPayload } from "../crypto";

@@ -1,3 +1,6 @@
+/**
+ * 固定窗口限流桶 + QR 验证并发槽（reserve/acquire/release）+ 旧桶清理。
+ */
 import { randomUUID } from "crypto";
 import { getDb, nowIso } from "../db";
 import { env } from "../env";

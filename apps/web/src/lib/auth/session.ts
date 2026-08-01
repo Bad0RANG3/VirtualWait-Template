@@ -1,3 +1,7 @@
+/**
+ * 用户会话：HMAC 签名 Cookie（vw_session，含 uid/sid/ip/exp）+ session 表行
+ * （支持服务端吊销）；提供 setSession/clearSession/getSessionUser 与资料 upsert。
+ */
 import { cookies } from "next/headers";
 import { getDb, nowIso } from "../db";
 import { env } from "../env";
@@ -8,6 +12,8 @@ const SESSION_MAX_AGE_SECONDS_PER_DAY = 24 * 60 * 60;
 
 type SessionPayload = {
   uid: string;
+  /** Server-side session row id — supports logout revocation. */
+  sid: string;
   /** Legacy field from the old midnight-expiring session format. */
   day?: string;
   /** Bound client IP hash at login time. */
@@ -37,6 +43,9 @@ function decodeSession(token: string | undefined): SessionPayload | null {
       typeof payload.uid !== "string" ||
       payload.uid.length < 1 ||
       payload.uid.length > 128 ||
+      typeof payload.sid !== "string" ||
+      payload.sid.length < 1 ||
+      payload.sid.length > 128 ||
       typeof payload.exp !== "number" ||
       !Number.isSafeInteger(payload.exp) ||
       (payload.day !== undefined &&
@@ -58,8 +67,18 @@ export async function setSession(userId: string, ipHash: string) {
   const jar = await cookies();
   const maxAge = env.sessionMaxAgeDays * SESSION_MAX_AGE_SECONDS_PER_DAY;
   const exp = Date.now() + maxAge * 1000;
+  // Persist a session row so logout can revoke the token even if it was
+  // copied from the cookie jar.
+  const sid = randomToken(24);
+  getDb()
+    .prepare(
+      `INSERT INTO session (id, user_id, ip_hash, issued_at_ms, revoked_at_ms)
+       VALUES (?, ?, ?, ?, NULL)`
+    )
+    .run(sid, userId, ipHash || "unknown", Date.now());
   const token = encodeSession({
     uid: userId,
+    sid,
     ip: ipHash || "unknown",
     exp,
   });
@@ -72,8 +91,17 @@ export async function setSession(userId: string, ipHash: string) {
   });
 }
 
+function revokeSessionToken(token: string | undefined) {
+  const payload = decodeSession(token);
+  if (!payload) return;
+  getDb()
+    .prepare(`UPDATE session SET revoked_at_ms = ? WHERE id = ? AND user_id = ?`)
+    .run(Date.now(), payload.sid, payload.uid);
+}
+
 export async function clearSession() {
   const jar = await cookies();
+  revokeSessionToken(jar.get(COOKIE)?.value);
   jar.set(COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
 }
 
@@ -118,6 +146,15 @@ export async function getSessionUser(
       return null;
     }
   }
+
+  // Reject tokens whose server-side session row was revoked (logout) or
+  // never existed (forged/stale token).
+  const row = getDb()
+    .prepare(
+      `SELECT revoked_at_ms FROM session WHERE id = ? AND user_id = ?`
+    )
+    .get(payload.sid, payload.uid) as { revoked_at_ms: number | null } | undefined;
+  if (!row || row.revoked_at_ms != null) return null;
 
   return getUserById(payload.uid);
 }

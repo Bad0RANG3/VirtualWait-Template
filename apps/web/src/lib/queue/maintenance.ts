@@ -1,5 +1,10 @@
+/**
+ * 常驻维护：超时处理 + 清理过期 attempt/限流桶/QR 槽/完成令牌/IP 日绑定/
+ * 不活跃资料/终态队列/审计(365d)/session(30d)。
+ */
 import { getDb, nowIso, addSeconds } from "../db";
 import { cleanupOldRateLimitBuckets } from "../auth/rate-limit";
+import { cleanupExpiredCompletionCapabilities } from "../auth/completion-capability";
 import { shanghaiDayKey } from "../auth/time";
 import { env } from "../env";
 import { processTimeouts } from "./service";
@@ -9,11 +14,13 @@ export type MaintenanceResult = {
   expiredAttemptsDeleted: number;
   expiredRateLimitBucketsDeleted: number;
   staleSlotsDeleted: number;
+  expiredCompletionTokensDeleted: number;
   expiredIpDayBindingsDeleted: number;
   staleProfilesScrubbed: number;
   terminalQueueEntriesDeleted: number;
   queuePartiesDeleted: number;
   auditEventsDeleted: number;
+  expiredSessionsDeleted: number;
 };
 
 type SqlRunResult = { changes?: number };
@@ -155,6 +162,9 @@ export function runMaintenance(now = nowIso()): MaintenanceResult {
   const slots = db
     .prepare(`DELETE FROM qr_concurrency_slot WHERE created_at_ms < ?`)
     .run(nowMs - 120_000) as SqlRunResult;
+  // Completion capabilities live longer than a QR slot: the client may still
+  // be polling the gateway (up to ~60s) before it completes the login.
+  const completionTokens = cleanupExpiredCompletionCapabilities(nowMs - 300_000);
 
   const ipBindingCutoffDay = shanghaiDayKey(
     nowMs - env.ipBindingRetentionDays * 86_400_000,
@@ -173,16 +183,25 @@ export function runMaintenance(now = nowIso()): MaintenanceResult {
     daysBefore(now, env.profileDataRetentionDays),
     now,
   );
+  // Revoked and expired sessions cannot be revoked again; drop them once the
+  // matching cookie would have expired anyway.
+  const expiredSessions = db
+    .prepare(
+      `DELETE FROM session WHERE issued_at_ms < ?`,
+    )
+    .run(nowMs - env.sessionMaxAgeDays * 86_400_000) as SqlRunResult;
 
   return {
     queuesProcessed: queues.length,
     expiredAttemptsDeleted: attempts.changes ?? 0,
     expiredRateLimitBucketsDeleted: rateLimitBuckets,
     staleSlotsDeleted: slots.changes ?? 0,
+    expiredCompletionTokensDeleted: completionTokens,
     expiredIpDayBindingsDeleted: ipDayBindings.changes ?? 0,
     staleProfilesScrubbed,
     terminalQueueEntriesDeleted: history.terminalQueueEntriesDeleted,
     queuePartiesDeleted: history.queuePartiesDeleted,
     auditEventsDeleted: auditEvents.changes ?? 0,
+    expiredSessionsDeleted: expiredSessions.changes ?? 0,
   };
 }

@@ -9,10 +9,7 @@ import {
 import { getSessionUser } from "@/lib/auth/session";
 import { countActiveEntriesByMachine } from "@/lib/queue/service";
 import { isVenueOpenNow } from "@/lib/settings";
-import {
-  LocationPicker,
-  type PickerCity,
-} from "@/components/LocationPicker";
+import { LocationPicker } from "@/components/LocationPicker";
 import { ArrowRight, QrCode } from "lucide-react";
 
 export default async function HomePage() {
@@ -25,24 +22,6 @@ export default async function HomePage() {
       sum + (activeByMachine.get(`${machine.venueSlug}/${machine.slug}`) ?? 0),
     0,
   );
-
-  const pickerCities: PickerCity[] = CITIES.map((city) => ({
-    slug: city.slug,
-    name: city.name,
-    districts: city.districts.map((district) => ({
-      slug: district.slug,
-      name: district.name,
-      kind: district.kind,
-      venues: district.venues.map((venue) => ({
-        slug: venue.slug,
-        name: venue.name,
-        machines: venue.machines.map((machine) => ({
-          slug: machine.slug,
-          name: machine.name,
-        })),
-      })),
-    })),
-  }));
 
   return (
     <div className="space-y-4">
@@ -58,16 +37,6 @@ export default async function HomePage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {!user && (
-              <Link className="btn-mint" href="/login">
-                扫码登录
-              </Link>
-            )}
-            {user && (
-              <Link className="btn-ghost" href="/me">
-                我的
-              </Link>
-            )}
             {user?.bound && (
               <Link className="btn-ghost" href="/bind">
                 <QrCode className="h-4 w-4" />
@@ -78,7 +47,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <LocationPicker cities={pickerCities} />
+      <LocationPicker cities={CITIES} />
 
       <section className="space-y-2">
         {CITIES.map((city) => (

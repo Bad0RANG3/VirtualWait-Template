@@ -59,6 +59,7 @@ const webKeys = [
   "GATEWAY_SHARED_SECRET",
   "TRUST_PROXY_HEADERS",
   "IP_BINDING_RETENTION_DAYS",
+  "IP_ACCOUNT_QUOTA_PER_DAY",
   "PROFILE_DATA_RETENTION_DAYS",
   "QUEUE_HISTORY_RETENTION_DAYS",
   "AUDIT_EVENT_RETENTION_DAYS",
@@ -94,7 +95,8 @@ for (const env of [webStaging, webProduction]) {
   assert.equal(env.GATEWAY_MODE, "remote", "Web examples must use the signed remote Gateway contract");
   assert.equal(env.TRUST_PROXY_HEADERS, "true", "Web examples must require sanitized proxy headers");
   assert.ok(Number(env.SESSION_MAX_AGE_DAYS) > 0, "SESSION_MAX_AGE_DAYS must be a positive number of days");
-  assert.match(env.APP_BASE_URL, /^https?:\/\//, "APP_BASE_URL must be HTTP or HTTPS");
+  assert.ok(Number(env.IP_ACCOUNT_QUOTA_PER_DAY) >= 1, "IP_ACCOUNT_QUOTA_PER_DAY must be a positive number of accounts");
+  assert.match(env.APP_BASE_URL, /^https:\/\//, "production APP_BASE_URL must use HTTPS");
   assert.match(
     env.GATEWAY_BASE_URL,
     /^https:\/\/|^http:\/\/127\.0\.0\.1:8787$/,
@@ -117,6 +119,16 @@ assert.equal(gatewayProduction.VW_GATEWAY_PROVIDER, "http", "production Gateway 
 assert.match(gatewayProduction.VW_GATEWAY_HTTP_VERIFY_URL, /^https:\/\//, "production verifier URL must use HTTPS");
 assert.equal(gatewayProduction.VW_GATEWAY_HTTP_AUTH_HEADER, "Authorization");
 assert.ok(Number(gatewayProduction.VW_GATEWAY_HTTP_TIMEOUT_SEC) > 0, "HTTP provider timeout must be positive");
+assert.match(
+  gatewayProduction.VW_GATEWAY_DATABASE_PATH,
+  /^\//,
+  "production Gateway database path must be absolute",
+);
+assert.doesNotMatch(
+  gatewayProduction.VW_GATEWAY_KEY_ID,
+  /^template-|^change_/i,
+  "production Gateway key ID must not be the template default",
+);
 assert.match(
   gatewayProduction.VW_GATEWAY_HTTP_AUTH_VALUE,
   /CHANGE_ME_PRODUCTION_PROVIDER_AUTH_TOKEN_64_HEX/,

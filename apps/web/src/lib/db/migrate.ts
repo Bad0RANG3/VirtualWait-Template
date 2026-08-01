@@ -20,6 +20,7 @@ export function migrate(db: Db) {
   _ensureWechatPasswordNullable(db);
   _removeOnSiteCallArtifacts(db);
   _ensureSecurityTables(db);
+  _ensureIpDayBindingQuota(db);
 }
 
 // ---------------------------------------------------------------------------
@@ -39,7 +40,7 @@ function _ensureSecurityTables(db: Db) {
       ip_hash TEXT NOT NULL, day_key TEXT NOT NULL,
       user_id TEXT NOT NULL REFERENCES app_user(id),
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-      PRIMARY KEY (ip_hash, day_key)
+      PRIMARY KEY (ip_hash, day_key, user_id)
     );
     CREATE TABLE IF NOT EXISTS rate_limit_bucket (
       key TEXT PRIMARY KEY, window_start INTEGER NOT NULL,
@@ -48,7 +49,58 @@ function _ensureSecurityTables(db: Db) {
     CREATE TABLE IF NOT EXISTS qr_concurrency_slot (
       id TEXT PRIMARY KEY, created_at_ms INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS completion_token (
+      id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS session (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES app_user(id),
+      ip_hash TEXT NOT NULL, issued_at_ms INTEGER NOT NULL, revoked_at_ms INTEGER
+    );
+    -- Every session query hits the primary key; the old (user_id) index was
+    -- never used. Drop it so existing databases converge with new installs.
+    DROP INDEX IF EXISTS idx_session_user;
   `);
+}
+
+/**
+ * Rebuild legacy ip_day_binding tables whose primary key only allowed one
+ * account per IP per day. The quota model needs one row per
+ * (ip_hash, day_key, user_id).
+ *
+ * NOTE: the legacy/new detection below parses the CREATE TABLE text that
+ * SQLite stores in sqlite_master (quoted identifiers are preserved as-is).
+ * If a future SQLite version changes how table DDL is persisted, re-check
+ * both regexes against `SELECT sql FROM sqlite_master WHERE type='table'`.
+ */
+function _ensureIpDayBindingQuota(db: Db) {
+  const sql = _tableSql(db, "ip_day_binding");
+  if (!sql) return;
+  const isLegacy = /PRIMARY\s+KEY\s*\(\s*ip_hash\s*,\s*day_key\s*\)/i.test(sql) &&
+    !/PRIMARY\s+KEY\s*\(\s*ip_hash\s*,\s*day_key\s*,\s*user_id\s*\)/i.test(sql);
+  if (!isLegacy) return;
+
+  db.pragma("foreign_keys = OFF");
+  db.exec("BEGIN");
+  try {
+    db.exec(`
+      CREATE TABLE ip_day_binding__new (
+        ip_hash TEXT NOT NULL, day_key TEXT NOT NULL,
+        user_id TEXT NOT NULL REFERENCES app_user(id),
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        PRIMARY KEY (ip_hash, day_key, user_id)
+      );
+      INSERT INTO ip_day_binding__new (ip_hash, day_key, user_id, created_at, updated_at)
+        SELECT ip_hash, day_key, user_id, created_at, updated_at FROM ip_day_binding;
+      DROP TABLE ip_day_binding;
+      ALTER TABLE ip_day_binding__new RENAME TO ip_day_binding;
+    `);
+    db.exec("COMMIT");
+  } catch (err) {
+    try { db.exec("ROLLBACK"); } catch { /* ignore */ }
+    throw err;
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
 }
 
 function _ensureWechatPasswordNullable(db: Db) {

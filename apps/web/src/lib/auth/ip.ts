@@ -1,3 +1,6 @@
+/**
+ * 客户端 IP 提取（受 TRUST_PROXY_HEADERS 控制取代理头）与 HMAC 匿名哈希。
+ */
 import { isIP } from "node:net";
 import { env } from "../env";
 import { hmacHex } from "../crypto";

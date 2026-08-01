@@ -77,20 +77,21 @@ export async function POST(req: Request) {
       if (existing.request_ip_hash !== ipHash) {
         throw new Error("IDEMPOTENCY_KEY_REUSED");
       }
+      // Rotate: invalidate any unconsumed capability for the attempt so a
+      // replayed POST can never resurrect a stolen/leaked earlier token.
+      db.prepare(`DELETE FROM completion_token WHERE attempt_id = ?`).run(existing.id);
+      const completionToken = createCompletionCapability(existing.id);
       if (existing.status === "SUCCEEDED" && existing.user_id) {
         bindIpToUser(ipHash, existing.user_id);
-        // Issue a fresh completion capability — the original may have been
-        // consumed or expired.
-        const completionToken = createCompletionCapability(existing.id);
         return jsonOk({
           attemptId: existing.id,
           status: "SUCCEEDED",
           completionToken,
         });
       }
-      // Still processing — return status but no new token (the original
-      // completionToken from the first POST is still valid).
-      return jsonOk({ attemptId: existing.id, status: existing.status });
+      // Still processing — reissue the token: the original may have been lost
+      // client-side (network error between POST response and storage).
+      return jsonOk({ attemptId: existing.id, status: existing.status, completionToken });
     }
 
     const jobId = await createVerificationJob(body.qrCode);

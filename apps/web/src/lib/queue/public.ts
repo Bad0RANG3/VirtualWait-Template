@@ -1,3 +1,7 @@
+/**
+ * 公开队列快照（只读无副作用）：WAITING 截断至 200 防超大响应，totalWaiting 如实；
+ * 含 countActiveEntries* 计数。
+ */
 import { getDb, nowIso } from "../db";
 import { venueBySlug } from "../constants/catalog";
 import {
@@ -15,6 +19,14 @@ type VenueLiveRow = {
   region_kind: string | null;
   machine_count: number | null;
 };
+
+/**
+ * Cap the serialized public snapshot so an extremely long queue cannot turn
+ * the 3.5s board poll into a multi-megabyte response. The countdown/positions
+ * of the shown slots stay correct; the client shows an overflow hint using
+ * `totalWaiting`.
+ */
+const PUBLIC_SNAPSHOT_MAX_WAITING_ENTRIES = 200;
 
 function getVenueLiveFields(slug: string): VenueLiveRow | null {
   return (
@@ -37,6 +49,14 @@ export function getPublicQueue(
   // Timeout processing is handled by write operations and the maintenance
   // loop — GET must remain side-effect-free for safe caching/prefetching.
   const active = listActiveEntries(queue.id);
+  // Bound the payload: keep every PLAYING row, then the earliest waiting
+  // entries up to the cap. A truncated duo pair degrades to a display-only
+  // artifact of the overflow hint, never to a correctness issue.
+  const waitingCount = active.filter((row) => row.status === "WAITING").length;
+  const playing = active.filter((row) => row.status === "PLAYING");
+  const waiting = active
+    .filter((row) => row.status === "WAITING")
+    .slice(0, Math.max(PUBLIC_SNAPSHOT_MAX_WAITING_ENTRIES - playing.length, 0));
   const parties = new Map<string, PartyRow>();
   const partyRows = getDb()
     .prepare(
@@ -44,7 +64,7 @@ export function getPublicQueue(
     )
     .all(queue.id) as PartyRow[];
   for (const party of partyRows) parties.set(party.id, party);
-  const built = buildSlots(active, parties, currentUserId);
+  const built = buildSlots([...playing, ...waiting], parties, currentUserId);
   const venueMeta = venueBySlug(queue.venue_slug);
   const live = getVenueLiveFields(queue.venue_slug);
   const hours = getVenueHoursBySlug(queue.venue_slug);
@@ -81,6 +101,7 @@ export function getPublicQueue(
     now: nowIso(),
     entries: built.entries,
     slots: built.slots,
+    totalWaiting: waitingCount,
   };
 }
 

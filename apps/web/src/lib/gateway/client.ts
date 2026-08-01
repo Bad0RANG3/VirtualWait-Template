@@ -1,3 +1,7 @@
+/**
+ * Gateway 客户端：HMAC 签名请求头、createVerificationJob、getVerificationJob
+ * （轮询，响应大小上限，zod 契约校验）。
+ */
 import { env } from "../env";
 import { hmacHex, randomToken, sha256Hex } from "../crypto";
 import {

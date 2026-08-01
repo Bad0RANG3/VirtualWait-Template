@@ -10,11 +10,15 @@ Gateway 现在支持三种 provider：
 
 ## 本地 Mock 运行
 
+需要 Python 3.11+（`pyproject.toml` 的 `requires-python`）：
+
 ```bash
 cd services/sdgb-gateway
+py -3.12 -m venv .venv
+.venv\Scripts\python.exe -m pip install -e ".[test]"   # Windows；Linux/macOS 用 .venv/bin/python -m pip
 cp .env.example .env.local
-PYTHONPATH=src python3 -m virtualwait_gateway
-PYTHONPATH=src pytest -q
+.venv\Scripts\python.exe -m virtualwait_gateway
+.venv\Scripts\python.exe -m pytest -q
 ```
 
 默认仅监听 `127.0.0.1:8787`。Web 始终使用 `GATEWAY_MODE=remote` 调用本服务；两端的 key ID、共享密钥和公开身份 HMAC 密钥必须一致。本地 `.env.local` 不得提交。

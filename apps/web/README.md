@@ -41,7 +41,6 @@ npm run healthcheck
 | `/city/sample-city` | 城市下的区/县 |
 | `/city/sample-city/sample-district` | 区县下的场地与机台（含活跃人数） |
 | `/login` | 二维码登录 |
-| `/register` | 注册/首次资料 |
 | `/bind` | 刷新已登录用户的公开资料 |
 | `/queue/sample-venue/machine-a` 等 | 示例机台队列板 |
 | `/me` | 当前用户的活动记录 |
@@ -109,11 +108,12 @@ npm run healthcheck
 `.env.example` 说明了全部本地配置。生产环境至少需要：
 
 - 独立且随机的 `SESSION_SECRET`、`PUBLIC_ID_HMAC_SECRET`、`GATEWAY_SHARED_SECRET`、`ADMIN_API_TOKEN`；每项长度至少 32 字符；
-- `APP_BASE_URL`（推荐 HTTPS；受控内网/测试可用 HTTP）；
+- `APP_BASE_URL`（生产环境必须为 HTTPS；仅受控内网可设 `ALLOW_INSECURE_APP_URL=true` 放行 HTTP）；
 - 已实现并审计的远程身份 Gateway，且 `GATEWAY_MODE=remote`（Web 拒绝 in-process mock）；
+- `IP_ACCOUNT_QUOTA_PER_DAY`（每个 IP 每天最多绑定账号数，默认 5）；
 - `PLAYING_TIMEOUT_SEC` / `HEAD_CONFIRM_TIMEOUT_SEC`（管理员仍可在运行时覆盖）；
 - 已清洗转发头的反向代理，以及 `TRUST_PROXY_HEADERS=true`；
-- 受限权限的数据目录、加密备份和明确的数据保留期限。
+- 受限权限的数据目录、加密备份和明确的数据保留期限（含 `IP_BINDING_RETENTION_DAYS`、`SESSION_MAX_AGE_DAYS`）。
 
 不要把生产值写入任何 `.env.example`、测试夹具、README、浏览器代码或日志。生产检查可执行：
 

@@ -13,6 +13,17 @@ class ConfigError(ValueError):
 
 _HEADER_NAME = re.compile(r"^[A-Za-z0-9-]{1,80}$")
 
+# Substrings that mark a value as a still-to-be-replaced deployment template
+# (see .env.example) rather than a real credential.  Length checks alone are
+# not enough: "CHANGE_ME_DEVELOPMENT_GATEWAY_SHARED_SECRET" is 42 chars.
+_PLACEHOLDER_MARKERS = ("change_me", "changeme", "placeholder", "your-", "xxxx")
+
+
+def _reject_placeholder(name: str, value: str) -> None:
+    lowered = value.lower()
+    if any(marker in lowered for marker in _PLACEHOLDER_MARKERS):
+        raise ConfigError(f"{name} must be replaced with a real value, not a template placeholder")
+
 
 def _positive_int(name: str, default: int) -> int:
     raw = os.getenv(name)
@@ -44,6 +55,7 @@ def _secret(name: str, default: str, production: bool) -> str:
     value = os.getenv(name, default)
     if production and (value == default or len(value) < 32):
         raise ConfigError(f"{name} must be a unique value with at least 32 characters")
+    _reject_placeholder(name, value)
     return value
 
 
@@ -137,6 +149,7 @@ class Settings:
             if not raw_url:
                 raise ConfigError("VW_GATEWAY_HTTP_VERIFY_URL is required when VW_GATEWAY_PROVIDER=http")
             http_verify_url = _safe_provider_url("VW_GATEWAY_HTTP_VERIFY_URL", raw_url, production)
+            _reject_placeholder("VW_GATEWAY_HTTP_AUTH_VALUE", http_auth_value)
             if production and not _is_loopback_http(http_verify_url) and len(http_auth_value) < 32:
                 raise ConfigError(
                     "VW_GATEWAY_HTTP_AUTH_VALUE must be set to a unique value with at least 32 characters for non-loopback production providers"
@@ -175,13 +188,42 @@ class Settings:
                 raise ConfigError(
                     "Missing SDGB preview settings: " + ", ".join(missing)
                 )
+            # Key material must be real, not template placeholders, and strong
+            # enough for the AES + HMAC machinery in production.
+            for name, value in required.items():
+                _reject_placeholder(name, value)
+            if production:
+                minimums = {
+                    "VW_SDGB_AES_KEY": 16,
+                    "VW_SDGB_AES_IV": 16,
+                    "VW_SDGB_AIME_SALT": 32,
+                    "VW_SDGB_OBFUSCATE_PARAM": 32,
+                }
+                weak = [
+                    f"{name} (minimum {minimums[name]} characters)"
+                    for name, limit in minimums.items()
+                    if len(required[name]) < limit
+                ]
+                if weak:
+                    raise ConfigError(
+                        "SDGB preview secrets are too weak in production: " + ", ".join(weak)
+                    )
+
+        key_id = os.getenv("VW_GATEWAY_KEY_ID", "template-web-1")
+        if production and (key_id == "template-web-1" or not key_id.strip()):
+            raise ConfigError("VW_GATEWAY_KEY_ID must be set to a non-template value in production")
+
+        database_path_raw = os.getenv("VW_GATEWAY_DATABASE_PATH", "./data/gateway.db")
+        database_path = Path(database_path_raw)
+        if production and not database_path.is_absolute():
+            raise ConfigError("VW_GATEWAY_DATABASE_PATH must be an absolute path in production")
 
         return cls(
             environment=environment,
             host=os.getenv("VW_GATEWAY_HOST", "127.0.0.1"),
             port=_positive_int("VW_GATEWAY_PORT", 8787),
-            database_path=Path(os.getenv("VW_GATEWAY_DATABASE_PATH", "./data/gateway.db")),
-            key_id=os.getenv("VW_GATEWAY_KEY_ID", "template-web-1"),
+            database_path=database_path,
+            key_id=key_id,
             shared_secret=_secret(
                 "VW_GATEWAY_SHARED_SECRET", "dev-gateway-secret", production
             ),
