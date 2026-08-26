@@ -139,4 +139,4 @@ npm run preflight -- --production
 - `GET /api/bot/catalog`
 - `GET /api/bot/queues/{venueSlug}/{machineSlug}`
 
-玩家在 `/me` 绑定 QQ；管理员在场地中配置群 UMO（`groupUmo`）。详见 [docs/QUEUE_NOTIFY.md](../../docs/QUEUE_NOTIFY.md) 与插件 [`plugins/astrbot_plugin_virtualwait_queue`](../../plugins/astrbot_plugin_virtualwait_queue)。
+玩家在 `/me` 绑定 QQ；管理员在场地中配置群 UMO（`groupUmo`）。详见 [docs/QUEUE_NOTIFY.md](../../docs/QUEUE_NOTIFY.md) 与 QQ 机器人插件 [`services/bot`](../../services/bot)。

@@ -5,7 +5,7 @@
 import { addSeconds, getDb, nowIso } from "../db";
 import { getHeadConfirmTimeoutSec, getPlayingTimeoutSec } from "../settings";
 import type { PlayMode } from "../types";
-import { audit, finishOrExpireEntry, requeueToEnd } from "./core";
+import { audit, requeueToEnd } from "./core";
 
 export type WaitingMember = {
   id: string;
@@ -103,72 +103,6 @@ function markHeadEligibility(queueId: string) {
   }
 }
 
-function moveGroupBackOne(queueId: string, head: WaitingGroup, next: WaitingGroup) {
-  const db = getDb();
-  const now = nowIso();
-  const ordered = waitingGroups(queueId);
-  // Keep full waiting order, swap the timed-out head with the next group only.
-  const swapped = ordered.map((group) => {
-    if (group.key === head.key) return next;
-    if (group.key === next.key) return head;
-    return group;
-  });
-
-  db.transaction(() => {
-    // Park every waiting entry on temporary sequence numbers first.
-    let temp = -1;
-    for (const group of ordered) {
-      for (const member of group.members) {
-        db.prepare(
-          `UPDATE queue_entry SET sequence_number = ?, updated_at = ?, version = version + 1
-           WHERE id = ?`,
-        ).run(temp--, now, member.id);
-      }
-    }
-
-    const queue = db
-      .prepare(`SELECT next_sequence FROM queue WHERE id = ?`)
-      .get(queueId) as { next_sequence: number };
-    let sequence = queue.next_sequence;
-    for (const group of swapped) {
-      const isFormerHead = group.key === head.key;
-      for (const member of group.members) {
-        db.prepare(
-          `UPDATE queue_entry
-           SET sequence_number = ?,
-               head_eligible_at = NULL,
-               head_miss_count = ?,
-               updated_at = ?,
-               version = version + 1
-           WHERE id = ?`,
-        ).run(sequence++, isFormerHead ? 1 : member.head_miss_count || 0, now, member.id);
-      }
-    }
-    db.prepare(`UPDATE queue SET next_sequence = ?, updated_at = ? WHERE id = ?`).run(
-      sequence, now, queueId,
-    );
-  })();
-}
-
-function cancelWaitingGroup(
-  members: Array<{ id: string; party_id: string | null; play_mode: PlayMode }>,
-  reason: string,
-) {
-  const db = getDb();
-  const now = nowIso();
-  for (const member of members) {
-    finishOrExpireEntry(member.id, "CANCELLED", "SYSTEM", null, reason);
-  }
-  const partyId = members[0]?.party_id;
-  const playMode = members[0]?.play_mode;
-  if (partyId && playMode === "DUO") {
-    db.prepare(
-      `UPDATE queue_party SET status = 'DISBANDED', updated_at = ?
-       WHERE id = ? AND status != 'DISBANDED'`,
-    ).run(now, partyId);
-  }
-}
-
 function processHeadConfirmTimeouts(queueId: string) {
   const db = getDb();
   const busy = db
@@ -186,41 +120,14 @@ function processHeadConfirmTimeouts(queueId: string) {
   const deadline = addSeconds(eligibleAt, getHeadConfirmTimeoutSec());
   if (deadline > nowIso()) return;
 
-  const missCount = Math.max(...head.members.map((member) => member.head_miss_count || 0));
-  if (missCount >= 1) {
-    cancelWaitingGroup(head.members, "head_confirm_timeout_second");
-    audit("ENTRY_HEAD_TIMEOUT_CANCEL", "queue_entry", head.members[0]!.id, "SYSTEM", null, {
+  // 队头确认超时：整组自动排到队尾（不后移一组、不卸卡）。
+  // 下一组队首随后获得新的确认窗口，由通知插件 @ 提醒。
+  const headEntryId = head.members[0]!.id;
+  if (requeueToEnd(queueId, headEntryId, ["WAITING"])) {
+    audit("ENTRY_HEAD_TIMEOUT_REQUEUE_END", "queue_entry", headEntryId, "SYSTEM", null, {
       partyId: head.members[0]!.party_id,
-      missCount: missCount + 1,
     });
-    return;
   }
-
-  const next = groups[1];
-  if (next) {
-    moveGroupBackOne(queueId, head, next);
-    audit("ENTRY_HEAD_TIMEOUT_REQUEUE", "queue_entry", head.members[0]!.id, "SYSTEM", null, {
-      partyId: head.members[0]!.party_id,
-      nextKey: next.key,
-      missCount: 1,
-    });
-    return;
-  }
-
-  // Alone at head: first miss only arms the second-strike counter.
-  const now = nowIso();
-  for (const member of head.members) {
-    db.prepare(
-      `UPDATE queue_entry
-       SET head_miss_count = 1, head_eligible_at = ?, updated_at = ?, version = version + 1
-       WHERE id = ? AND status = 'WAITING'`,
-    ).run(now, now, member.id);
-  }
-  audit("ENTRY_HEAD_TIMEOUT_STRIKE", "queue_entry", head.members[0]!.id, "SYSTEM", null, {
-    partyId: head.members[0]!.party_id,
-    missCount: 1,
-    alone: true,
-  });
 }
 
 /** Requeue play timeouts and enforce head-of-queue confirm window. */

@@ -14,9 +14,11 @@ from .contracts import ContractError, create_job_response, error_response, parse
 from .provider import (
     HttpVerificationProvider,
     MockVerificationProvider,
+    SdgbFullVerificationProvider,
     SdgbPreviewVerificationProvider,
     VerificationProvider,
 )
+from .sdgb_full import SdgbFullSettings
 from .sdgb_preview import SdgbPreviewSettings
 from .repository import Repository
 from .security import AuthenticationError, verify_signed_request
@@ -38,6 +40,29 @@ def create_provider(settings: Settings) -> VerificationProvider:
             settings.http_auth_value,
             settings.http_timeout_sec,
         )
+
+    if (
+        settings.provider == "sdgb_full"
+        and settings.sdgb_aime_url
+        and settings.sdgb_title_server_url
+    ):
+        return SdgbFullVerificationProvider(
+            SdgbFullSettings(
+                aime_url=settings.sdgb_aime_url,
+                title_server_url=settings.sdgb_title_server_url,
+                aime_salt=settings.sdgb_aime_salt,
+                aes_key=settings.sdgb_aes_key,
+                aes_iv=settings.sdgb_aes_iv,
+                obfuscate_param=settings.sdgb_obfuscate_param,
+                keychip_id=settings.sdgb_keychip_id,
+                client_id=settings.sdgb_client_id,
+                region_id=settings.sdgb_region_id,
+                place_id=settings.sdgb_place_id,
+                timeout_sec=settings.sdgb_timeout_sec,
+            ),
+            settings.public_id_hmac_secret,
+        )
+
     if (
         settings.provider == "sdgb_preview"
         and settings.sdgb_aime_url

@@ -52,6 +52,7 @@ test("duo head group stamps the late guest and keeps the earliest deadline basel
       ('e-host', 'queue-a', 'u1', 'party-duo', 'DUO', 1, 'WAITING', 1, ?, ?, 0, ?, ?),
       ('e-guest', 'queue-a', 'u2', 'party-duo', 'DUO', 2, 'WAITING', 1, ?, NULL, 0, ?, ?)`,
   ).run(now, hostStamp, now, now, now, now, now);
+  db.prepare(`UPDATE queue SET next_sequence = 3 WHERE id = 'queue-a'`).run();
 
   processTimeouts("queue-a");
 
@@ -62,12 +63,9 @@ test("duo head group stamps the late guest and keeps the earliest deadline basel
     .prepare(`SELECT head_eligible_at FROM queue_entry WHERE id = 'e-guest'`)
     .get() as { head_eligible_at: string };
 
-  // The late-joining guest received a stamp (the group deadline uses the
-  // earliest member stamp, so the countdown never extends).
   assert.equal(host.head_eligible_at, hostStamp);
   assert.ok(guest.head_eligible_at, "guest must be stamped");
 
-  // Deadline comes from the earliest (host) stamp, not the guest's.
   const deadlineFromHost = new Date(hostStamp).getTime() + 180_000;
   const guestDeadline = new Date(guest.head_eligible_at!).getTime() + 180_000;
   assert.ok(
@@ -76,7 +74,7 @@ test("duo head group stamps the late guest and keeps the earliest deadline basel
   );
 });
 
-test("duo alone at head: first timeout strikes the whole group, second cancels it", async () => {
+test("duo alone at head: timeout requeues to the tail and never unloads", async () => {
   const { getDb } = await import("../db");
   const { processTimeouts } = await import("./timeouts");
   const db = getDb();
@@ -95,39 +93,50 @@ test("duo alone at head: first timeout strikes the whole group, second cancels i
       ('e3', 'queue-b', 'u3', 'party-duo2', 'DUO', 10, 'WAITING', 1, ?, ?, 0, ?, ?),
       ('e4', 'queue-b', 'u4', 'party-duo2', 'DUO', 11, 'WAITING', 1, ?, NULL, 0, ?, ?)`,
   ).run(now, staleStamp, now, now, now, now, now);
+  db.prepare(`UPDATE queue SET next_sequence = 12 WHERE id = 'queue-b'`).run();
 
-  // First pass: deadline (host stamp + 180s) is past, no next group →
-  // strike the whole group and restart a fresh countdown for both members.
   processTimeouts("queue-b");
 
-  const strike = (id: string) =>
+  const row = (id: string) =>
     db
-      .prepare(`SELECT head_miss_count, head_eligible_at FROM queue_entry WHERE id = ?`)
-      .get(id) as { head_miss_count: number; head_eligible_at: string | null };
-  const strikeHost = strike("e3");
-  const strikeGuest = strike("e4");
-  assert.equal(strikeHost.head_miss_count, 1);
-  assert.equal(strikeGuest.head_miss_count, 1);
-  assert.ok(strikeHost.head_eligible_at, "both members get a fresh stamp");
-  assert.equal(strikeHost.head_eligible_at, strikeGuest.head_eligible_at);
+      .prepare(
+        `SELECT status, sequence_number, head_miss_count, head_eligible_at FROM queue_entry WHERE id = ?`,
+      )
+      .get(id) as {
+      status: string;
+      sequence_number: number;
+      head_miss_count: number;
+      head_eligible_at: string | null;
+    };
+  const host = row("e3");
+  const guest = row("e4");
+  assert.equal(host.status, "WAITING", "duo must not be unloaded");
+  assert.equal(host.head_miss_count, 0, "miss count resets");
+  assert.ok(host.sequence_number > 10, "host requeued to the tail");
+  assert.ok(guest.sequence_number > 11, "guest requeued to the tail");
+  // 排到队尾后若仍是唯一队首，markHeadEligibility 会立即重新打新确认戳。
+  assert.ok(
+    host.head_eligible_at && host.head_eligible_at > staleStamp,
+    "countdown restarts with a fresh head window",
+  );
+  assert.ok(
+    guest.head_eligible_at && guest.head_eligible_at > staleStamp,
+    "guest gets a fresh stamp too",
+  );
 
-  // Simulate the countdown elapsing again (processTimeouts uses real time).
+  // A second elapsed window also requeues (never unloads / disbands).
   const again = new Date(Date.now() - 240_000).toISOString();
-  db.prepare(
-    `UPDATE queue_entry SET head_eligible_at = ? WHERE id IN ('e3','e4')`,
-  ).run(again);
-
-  // Second pass: missCount >= 1 → cancel the whole group and disband.
+  db.prepare(`UPDATE queue_entry SET head_eligible_at = ? WHERE id IN ('e3','e4')`).run(again);
   processTimeouts("queue-b");
 
-  const cancelled = db
+  const afterSecond = db
     .prepare(`SELECT status FROM queue_entry WHERE id IN ('e3','e4') ORDER BY id`)
     .all() as Array<{ status: string }>;
-  assert.ok(cancelled.every((row) => row.status === "CANCELLED"));
+  assert.ok(afterSecond.every((r) => r.status === "WAITING"));
   const party = db
     .prepare(`SELECT status FROM queue_party WHERE id = 'party-duo2'`)
     .get() as { status: string };
-  assert.equal(party.status, "DISBANDED");
+  assert.equal(party.status, "PENDING", "party must not be disbanded");
 });
 
 test("duo timed out with a next group: the whole duo requeues behind it", async () => {
@@ -155,6 +164,7 @@ test("duo timed out with a next group: the whole duo requeues behind it", async 
     now, staleStamp, now, now, now, now, now,
     now, soloStamp, now, now,
   );
+  db.prepare(`UPDATE queue SET next_sequence = 23 WHERE id = 'queue-east-a'`).run();
 
   processTimeouts("queue-east-a");
 
@@ -167,14 +177,12 @@ test("duo timed out with a next group: the whole duo requeues behind it", async 
       head_miss_count: number;
     }).head_miss_count;
 
-  // The whole duo moved behind the solo group.
   assert.ok(seq("e6") > seq("e8"), "duo host must be behind the solo group");
   assert.ok(seq("e7") > seq("e8"), "duo guest must be behind the solo group");
-  assert.equal(miss("e6"), 1);
-  assert.equal(miss("e7"), 1);
+  assert.equal(miss("e6"), 0, "miss count resets under the new rule");
+  assert.equal(miss("e7"), 0);
   assert.equal(miss("e8"), 0);
 
-  // The party is not disbanded on a first strike.
   const party = db
     .prepare(`SELECT status FROM queue_party WHERE id = 'party-duo3'`)
     .get() as { status: string };

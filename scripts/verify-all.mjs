@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const web = path.join(root, "apps/web");
 const gateway = path.join(root, "services/sdgb-gateway");
+const bot = path.join(root, "services/bot");
 
 function run(label, command, args, options = {}) {
   console.info(`\n==> ${label}`);
@@ -58,6 +59,12 @@ run("web build", "npm", ["run", "build"], { cwd: web, env: productionEnv });
 run("gateway tests", "python3", ["-m", "pytest", "-q"], {
   cwd: gateway,
   env: { PYTHONPATH: "src" },
+});
+run("shared sdgb-client compile", "python3", ["-m", "compileall", "-q", "packages/sdgb-client"]);
+run("bot compile", "python3", ["-m", "compileall", "-q", "services/bot"]);
+run("bot tests", "python3", ["-m", "pytest", "-q", "tests"], {
+  cwd: bot,
+  env: { PYTHONPATH: "." },
 });
 
 console.info("\nVirtualWait template verification passed");

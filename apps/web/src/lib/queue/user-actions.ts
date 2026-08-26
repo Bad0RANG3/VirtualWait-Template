@@ -12,6 +12,7 @@ import {
   audit,
   finishOrExpireEntry,
   getParty,
+  requeueToEnd,
   startEntries,
 } from "./core";
 import { processTimeouts } from "./timeouts";
@@ -339,14 +340,31 @@ export function confirmStartPlay(entryId: string, userId: string) {
 
 export function finishPlay(entryId: string, userId: string) {
   const entry = getDb()
-    .prepare(`SELECT id, queue_id, user_id, status FROM queue_entry WHERE id = ?`)
+    .prepare(
+      `SELECT id, queue_id, user_id, party_id, play_mode, status
+       FROM queue_entry WHERE id = ?`,
+    )
     .get(entryId) as
-    | { id: string; queue_id: string; user_id: string; status: EntryStatus }
+    | {
+        id: string;
+        queue_id: string;
+        user_id: string;
+        party_id: string | null;
+        play_mode: PlayMode;
+        status: EntryStatus;
+      }
     | undefined;
   if (!entry) throw new ServiceError("ENTRY_NOT_FOUND");
   if (entry.user_id !== userId) throw new ServiceError("FORBIDDEN");
   if (entry.status !== "PLAYING") throw new ServiceError("INVALID_STATUS");
-  finishOrExpireEntry(entry.id, "DONE", "USER", userId);
+  // 结束游玩自动回队尾（继续排队），而不是直接出队/卸卡；
+  // 玩家不想继续排队时使用「取消排队」离开。
+  if (requeueToEnd(entry.queue_id, entry.id, ["PLAYING"])) {
+    audit("ENTRY_FINISH_REQUEUE", "queue_entry", entry.id, "USER", userId, {
+      reason: "user_finish_requeue",
+      partyId: entry.party_id,
+    });
+  }
   processTimeouts(entry.queue_id);
 }
 

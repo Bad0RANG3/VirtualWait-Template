@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-test("head confirm timeout moves group back once then cancels on second miss", async () => {
+test("head confirm timeout requeues the group to the tail instead of unloading", async () => {
   process.env.VIRTUALWAIT_DATA_DIR = mkdtempSync(path.join(tmpdir(), "vw-head-"));
   process.env.HEAD_CONFIRM_TIMEOUT_SEC = "180";
   process.env.PLAYING_TIMEOUT_SEC = "1500";
@@ -35,6 +35,7 @@ test("head confirm timeout moves group back once then cancels on second miss", a
       ('e1', 'queue-a', 'u1', NULL, 'SOLO', 1, 'WAITING', 1, ?, ?, 0, ?, ?),
       ('e2', 'queue-a', 'u2', NULL, 'SOLO', 2, 'WAITING', 1, ?, NULL, 0, ?, ?)`,
   ).run(now, past, now, now, now, now, now);
+  db.prepare(`UPDATE queue SET next_sequence = 3 WHERE id = 'queue-a'`).run();
 
   processTimeouts("queue-a");
   const afterFirst = db
@@ -48,28 +49,29 @@ test("head confirm timeout moves group back once then cancels on second miss", a
     status: string;
   }>;
   assert.equal(afterFirst[0]?.id, "e2", "next group should become head");
-  assert.equal(afterFirst.find((row) => row.id === "e1")?.head_miss_count, 1);
-  assert.equal(afterFirst.find((row) => row.id === "e1")?.status, "WAITING");
+  assert.equal(afterFirst.find((row) => row.id === "e1")?.head_miss_count, 0, "miss count resets");
+  assert.equal(afterFirst.find((row) => row.id === "e1")?.status, "WAITING", "not unloaded");
+  assert.ok(
+    afterFirst.find((row) => row.id === "e1")!.sequence_number >
+      afterFirst.find((row) => row.id === "e2")!.sequence_number,
+    "timed-out head must be requeued to the tail",
+  );
 
-  // e1 becomes head again with expired eligibility and miss=1 -> cancel
+  // e1 becomes head again with expired eligibility -> requeue again, never cancelled.
   db.prepare(
-    `UPDATE queue_entry SET sequence_number = -1, head_eligible_at = ?, head_miss_count = 1 WHERE id = 'e1'`,
+    `UPDATE queue_entry SET sequence_number = -1, head_eligible_at = ?, head_miss_count = 0 WHERE id = 'e1'`,
   ).run(past);
   db.prepare(
     `UPDATE queue_entry SET sequence_number = -2, head_eligible_at = NULL, head_miss_count = 0 WHERE id = 'e2'`,
   ).run();
-  db.prepare(
-    `UPDATE queue_entry SET sequence_number = 1 WHERE id = 'e1'`,
-  ).run();
-  db.prepare(
-    `UPDATE queue_entry SET sequence_number = 2 WHERE id = 'e2'`,
-  ).run();
+  db.prepare(`UPDATE queue_entry SET sequence_number = 1 WHERE id = 'e1'`).run();
+  db.prepare(`UPDATE queue_entry SET sequence_number = 2 WHERE id = 'e2'`).run();
 
   processTimeouts("queue-a");
   const e1 = db
     .prepare(`SELECT status FROM queue_entry WHERE id = 'e1'`)
     .get() as { status: string };
-  assert.equal(e1.status, "CANCELLED", "second miss should unload the group");
+  assert.equal(e1.status, "WAITING", "second miss must also requeue, not unload");
 
   const snap = getPublicQueue("sample-venue", "machine-a", "u2");
   assert.ok(snap);

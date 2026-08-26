@@ -33,7 +33,7 @@ Next.js Web + SQLite ---- HMAC ----> Gateway (127.0.0.1:8787)
   |                                      |
   | Bearer (可选 Bot 专用密钥)            | 已授权的身份 provider
   v                                      v
-AstrBot 插件                           mock | http | sdgb_preview
+QQ 机器人（services/bot）               mock | http | sdgb_preview | sdgb_full
 ```
 
 | 组件 | 职责 | 不应承担的职责 |
@@ -41,7 +41,7 @@ AstrBot 插件                           mock | http | sdgb_preview
 | Web | 页面、会话、队列状态机、管理员 API、SQLite、Bot API | 直接调用未经授权的上游身份接口。 |
 | Gateway | 验证 Web HMAC、nonce 与时间戳；调用 provider；返回最小身份结果 | 对公网开放、记录二维码或 token。 |
 | Nginx | TLS、代理、可信客户端 IP 头重写 | 将 Gateway 暴露给互联网。 |
-| AstrBot 插件 | 轮询受保护 Bot API、去重、冷却、发送群消息 | 使用公开队列接口获取 QQ。 |
+| QQ 机器人（services/bot） | 轮询受保护 Bot API、去重、冷却、发送群消息 | 使用公开队列接口获取 QQ。 |
 
 Web、Gateway、管理员和 Bot 均使用不同的密钥或会话。管理员令牌不能复用为 Bot 令牌，Bot 令牌不能进入浏览器代码。
 
@@ -60,7 +60,7 @@ Web、Gateway、管理员和 Bot 均使用不同的密钥或会话。管理员�
 3. 用户加入开放且处于营业时间内的单人队列，或创建/加入双人队伍。
 4. 双人队伍须双方确认，才允许作为完整组上机。
 5. 空闲机台的队首可确认上机；管理员可在管理台代操作。
-6. 用户或管理员结束游玩；取消和超时均写入审计。
+6. 用户或管理员结束游玩后条目**自动回到队尾**继续排队（可随时取消离开）；游玩超时同样回队尾；取消和超时均写入审计。
 
 同一用户在任一队列中只能有一条 `WAITING` 或 `PLAYING` 记录。数据库的部分唯一索引是该不变量的最终保护。
 
@@ -76,11 +76,11 @@ Web、Gateway、管理员和 Bot 均使用不同的密钥或会话。管理员�
 | 加入拼机 | 目标为同一队列 `SEEKING` 队伍且未满 | 双方变为 `PENDING`。 |
 | 双方确认 | 两名成员分别确认 | 队伍变为 `CONFIRMED`。 |
 | 确认上机 | 机台无 `PLAYING`、请求者为等待队首；双人已确认 | 整组变为 `PLAYING`。 |
-| 结束 | 条目为 `PLAYING` | 整组/条目变为 `DONE`。 |
+| 结束 | 条目为 `PLAYING` | 整组/条目回到 `WAITING` 队尾（继续排队，可取消离开）。 |
 | 用户取消 | 自己的条目为 `WAITING` | 条目 `CANCELLED`；双人队按成员关系拆分或解散。 |
 | 游玩超时 | `playing_at` 超过 `PLAYING_TIMEOUT_SEC` | 整组回到等待队尾。 |
 | 队头首次超时 | 空闲机台，队首未在 `HEAD_CONFIRM_TIMEOUT_SEC` 内确认 | 整组后移一组，计一次 miss。 |
-| 队头第二次超时 | 同一组已有一次 miss 且再次超时 | 整组自动取消（卸卡）。 |
+| 队头确认超时 | 队首在确认窗口（默认 180 秒）内未上机 | 整组自动**排到队尾**，下一位队首重新计时。 |
 
 默认 `PLAYING_TIMEOUT_SEC=1500`、`HEAD_CONFIRM_TIMEOUT_SEC=180`。管理员可写入 `app_settings` 覆盖环境默认值。超时处理会由公开读、用户动作、管理员动作和维护过程共同触发；不能仅依赖单一 cron。
 
@@ -204,7 +204,7 @@ Web 与 Gateway 契约以 `packages/contracts/schemas/*.v1.schema.json` 为准�
 1. SQLite 适合单机单实例，不能以增加 Next.js 副本的方式横向扩容。
 2. 超时是惰性处理加维护任务的组合，严格分钟级 SLA 需补充专用可靠任务调度和告警。
 3. Bot 轮询为最终一致通知，不能替代用户队头确认或管理员判断。
-4. `sdgb_preview` 与任何真实 provider 的可用性、合法性和字段稳定性由上游及运营方决定，必须有授权与故障预案。
+4. `sdgb_preview`、`sdgb_full` 与任何真实 provider 的可用性、合法性和字段稳定性由上游及运营方决定，必须有授权与故障预案；`sdgb_full` 必须遵守“登录→用完→立即登出”的凭证纪律。
 5. QQ 是直接个人标识；启用通知前必须完成隐私告知、访问控制和保留期限确认。
 
 ## 12. 上线验收清单

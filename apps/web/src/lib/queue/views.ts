@@ -19,7 +19,6 @@ function toPartyView(
   if (!party) return null;
   const memberViews = members.map((member) => ({
     entryId: member.id,
-    userId: member.user_id,
     displayName: member.nickname,
     rating:
       member.sdgb_identity_hash && member.show_rating_public ? member.rating : null,

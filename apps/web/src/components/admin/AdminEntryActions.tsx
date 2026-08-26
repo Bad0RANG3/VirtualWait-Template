@@ -52,7 +52,7 @@ export function AdminEntryActions({
               {e.status === "PLAYING" && (
                 <button className="btn-primary" disabled={busyKey === e.id}
                   onClick={() => onAction(e, "FINISH")}>
-                  结束{e.isDuo ? "整组" : ""}
+                  结束并继续排队{e.isDuo ? "整组" : ""}
                 </button>
               )}
             </div>

@@ -164,7 +164,7 @@ export const env = {
   gatewayKeyId: process.env.GATEWAY_KEY_ID || "template-web-1",
   gatewaySharedSecret,
   adminApiToken,
-  /** Separate bearer for AstrBot / machine-to-machine queue APIs. Empty disables /api/bot/*. */
+  /** Separate bearer for QQ bot (services/bot) machine-to-machine queue APIs. Empty disables /api/bot/*. */
   botApiToken,
   /** Catalog pulls per minute for BOT_API_TOKEN. */
   botCatalogRateLimit: num("BOT_CATALOG_RATE_LIMIT", 20),

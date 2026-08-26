@@ -41,7 +41,7 @@ export function QueueBoard({
       if (!res.ok) throw new Error(`poll ${res.status}`);
       setData(await res.json() as PublicQueueSnapshot);
       failStreakRef.current = 0;
-    } catch (err) {
+    } catch {
       // A superseded or unmounted poll is not a failure.
       if (abort.signal.aborted) return;
       // Exponential backoff so a down API does not hammer the server.
@@ -177,7 +177,7 @@ function MySlotActions({ myEntry, busy, accentBtn, act }: {
       {myEntry.status === "PLAYING" && (
         <button className="btn-primary" disabled={busy === "finish"}
           onClick={() => act(`/api/entries/${myEntry.id}/finish`, undefined, "finish")}>
-          {busy === "finish" ? "结束中…" : "结束游玩"}
+          {busy === "finish" ? "结束中…" : "结束并继续排队"}
         </button>
       )}
       {myEntry.status === "WAITING" && myEntry.canConfirmStart && (

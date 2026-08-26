@@ -26,6 +26,7 @@ from urllib.request import (
 
 __all__ = [
     "TransportError",
+    "http_post_full",
     "http_post",
     "http_post_json",
     "DEFAULT_MAX_RESPONSE_BYTES",
@@ -72,6 +73,54 @@ _NO_REDIRECT_OPENER = build_opener(_NoRedirectHandler(), HTTPSHandler())
 # ---------------------------------------------------------------------------
 
 
+def http_post_full(
+    url: str,
+    body: bytes,
+    *,
+    headers: dict[str, str] | None = None,
+    timeout_sec: float = DEFAULT_TIMEOUT_SEC,
+    max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+) -> tuple[int, dict[str, str], bytes]:
+    """POST *body* to *url* and return ``(status_code, response_headers, response_bytes)``.
+
+    Redirects are **never** followed.  The response body is read in a bounded
+    fashion — if it exceeds *max_response_bytes* the call raises
+    :exc:`TransportError("UPSTREAM_PROTOCOL_ERROR")`.  Response headers are
+    returned as a plain ``dict`` (needed by the real SDGB provider to capture
+    session cookies such as ``JSESSIONID``); duplicate headers keep the last
+    value.
+    """
+    req_headers: dict[str, str] = {
+        "Accept": "application/json",
+        "User-Agent": "VirtualWaitGateway/0.1",
+    }
+    if headers:
+        req_headers.update(headers)
+    request = Request(url, data=body, headers=req_headers, method="POST")
+
+    try:
+        with _NO_REDIRECT_OPENER.open(request, timeout=timeout_sec) as response:
+            status = getattr(response, "status", 200)
+            raw = _read_bounded(response, max_response_bytes)
+            response_headers = {
+                str(name): str(value) for name, value in response.headers.items()
+            }
+            return int(status), response_headers, raw
+    except HTTPError as exc:
+        # Drain the error body (bounded) so the connection can be reused.
+        try:
+            _read_bounded(exc, max_response_bytes)
+        except TransportError:
+            pass
+        raise TransportError("QR_EXCHANGE_FAILED") from exc
+    except (TimeoutError, URLError) as exc:
+        raise TransportError("UPSTREAM_TIMEOUT") from exc
+    except TransportError:
+        raise
+    except Exception as exc:
+        raise TransportError("UPSTREAM_PROTOCOL_ERROR") from exc
+
+
 def http_post(
     url: str,
     body: bytes,
@@ -86,32 +135,14 @@ def http_post(
     fashion — if it exceeds *max_response_bytes* the call raises
     :exc:`TransportError("UPSTREAM_PROTOCOL_ERROR")`.
     """
-    req_headers: dict[str, str] = {
-        "Accept": "application/json",
-        "User-Agent": "VirtualWaitGateway/0.1",
-    }
-    if headers:
-        req_headers.update(headers)
-    request = Request(url, data=body, headers=req_headers, method="POST")
-
-    try:
-        with _NO_REDIRECT_OPENER.open(request, timeout=timeout_sec) as response:
-            status = getattr(response, "status", 200)
-            raw = _read_bounded(response, max_response_bytes)
-            return int(status), raw
-    except HTTPError as exc:
-        # Drain the error body (bounded) so the connection can be reused.
-        try:
-            _read_bounded(exc, max_response_bytes)
-        except TransportError:
-            pass
-        raise TransportError("QR_EXCHANGE_FAILED") from exc
-    except (TimeoutError, URLError) as exc:
-        raise TransportError("UPSTREAM_TIMEOUT") from exc
-    except TransportError:
-        raise
-    except Exception as exc:
-        raise TransportError("UPSTREAM_PROTOCOL_ERROR") from exc
+    status, _headers, raw = http_post_full(
+        url,
+        body,
+        headers=headers,
+        timeout_sec=timeout_sec,
+        max_response_bytes=max_response_bytes,
+    )
+    return status, raw
 
 
 def http_post_json(

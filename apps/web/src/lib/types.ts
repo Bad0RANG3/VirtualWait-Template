@@ -39,7 +39,6 @@ export interface SessionUser {
 
 export interface PartyMemberView {
   entryId: string;
-  userId: string;
   displayName: string;
   rating: number | null;
   ratingVisible: boolean;

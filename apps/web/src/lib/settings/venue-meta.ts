@@ -28,7 +28,7 @@ export type VenueMeta = {
   openMinute: number;
   closeMinute: number;
   hoursLabel: string;
-  /** AstrBot UMO for queue-idle @ notifications; empty if unset. */
+  /** QQ group UMO for queue-idle @ notifications (services/bot); empty if unset. */
   groupUmo: string;
   isActive: boolean;
   updatedAt: string;

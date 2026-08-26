@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import type { Db } from "../db/sqlite";
+import { updateVenueMeta } from "../settings/venue-meta";
 
 // node:test runs every test in this file inside one process and the SQLite
 // singleton is module-cached, so a single shared temp dir is required.
@@ -21,7 +22,6 @@ function seedUsers(db: Db, ids: string[]) {
 }
 
 function openAllDay() {
-  const { updateVenueMeta } = require("../settings/venue-meta") as typeof import("../settings/venue-meta");
   updateVenueMeta("venue-sample-central", {
     address: "addr",
     regionName: "示例区",

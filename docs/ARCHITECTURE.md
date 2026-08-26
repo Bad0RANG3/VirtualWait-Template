@@ -14,7 +14,7 @@
   │     │  HMAC 签名请求
   │     ▼
   │   Gateway (Python, 127.0.0.1:8787)
-  │     │  mock | http | sdgb_preview
+  │     │  mock | http | sdgb_preview | sdgb_full
   │     ▼
   │   身份上游（仅真实 provider）
   │
@@ -105,7 +105,7 @@
 
 - 等待：`WAITING`（含拼机进行中的条目）
 - 游玩：`PLAYING`
-- 终态：取消、完成、超时卸卡等（由实现枚举定义，见 contracts）
+- 终态：取消、过期、超时卸卡等（由实现枚举定义，见 contracts）；「结束游玩」不再是终态，而是自动回队尾继续排队
 
 单人条目与双人 `party` 在队头判定时按 **组** 计：单刷一组、已确认拼机一组。
 
@@ -114,17 +114,16 @@
 1. 登录（Gateway 校验二维码 → 匿名 subject + 最小公开资料）。
 2. 在开放机台 `join`（单人 / 发起或加入双人）。
 3. 机台无 `PLAYING` 且自己在队头时，用户点 **确认上机**（`confirmStartPlay`）。
-4. 游玩结束后用户或管理员 **结束**；否则达到游玩超时后系统将条目 **重排到队尾**。
+4. 游玩结束后用户或管理员 **结束**，条目**自动回到队尾**继续排队（不想继续可随时取消）；达到游玩超时后系统同样将条目 **重排到队尾**。
 
 ### 4.3 队头确认超时
 
 当机台空闲时，系统为当前队头组标记 `head_eligible_at`。
 超时秒数：`HEAD_CONFIRM_TIMEOUT_SEC`（默认 **180**），可被管理员运行时覆盖。
 
-| 次数 | 行为 |
-|------|------|
-| 第 1 次超时 | 整组后移 **1 组**（单刷/拼机均算一组），`head_miss_count` 记 1 |
-| 第 2 次超时 | **自动取消（卸卡）** |
+| 行为 |
+|------|
+| 超时后整组**自动排到队尾**（单刷/拼机均算一组），下一位队首获得新的确认窗口 |
 
 管理员仍可强制开始/重排/取消/结束，不依赖用户确认按钮。
 
@@ -150,7 +149,7 @@
 Gateway 负责：
 
 1. 校验 Web 的 HMAC / 时间戳 / nonce / 请求摘要；
-2. 调用 provider（`mock` / `http` / `sdgb_preview`）；
+2. 调用 provider（`mock` / `http` / `sdgb_preview` / `sdgb_full`）；
 3. 将上游身份 HMAC 为匿名 subject；
 4. 只返回允许公开的最小资料；
 5. **不**持久化原始二维码、token、完整上游响应。
@@ -167,7 +166,7 @@ node scripts/verify-all.mjs
 
 ## 8. 机器人队列通知（Bot API）
 
-与 AstrBot 插件联动时，Web 提供独立 Bearer 鉴权的 Bot 面（`BOT_API_TOKEN`），**不**复用管理员 token：
+与 QQ 机器人插件（services/bot，NoneBot2）联动时，Web 提供独立 Bearer 鉴权的 Bot 面（`BOT_API_TOKEN`），**不**复用管理员 token：
 
 | 路径 | 用途 |
 |------|------|

@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 import process from "node:process";
 
 const args = new Set(process.argv.slice(2));
@@ -32,6 +34,80 @@ function validGatewayUrl(value) {
     return false;
   }
 }
+
+
+// ---------------------------------------------------------------------------
+// Repository leak scan: reject tracked local-runtime files and known SDGB
+// secret material (defense in depth against `git add .` / accidental commits).
+// ---------------------------------------------------------------------------
+function findRepoRoot(start) {
+  let dir = path.resolve(start);
+  for (;;) {
+    if (fs.existsSync(path.join(dir, ".git"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+const FORBIDDEN_TRACKED_PARTS = [
+  `${path.sep}napcat${path.sep}`,
+  `${path.sep}token_cache.json`,
+  `${path.sep}records_cache.json`,
+  `${path.sep}webui.json`,
+];
+// 这些文件本身就是检测器，允许包含用于匹配的字符串字面量。
+const SECRET_SCAN_SKIP = new Set([
+  "apps/web/scripts/preflight.mjs",
+  ".github/workflows/verify.yml",
+]);
+const FORBIDDEN_SECRET_FRAGMENTS = [
+  "FKM2JX:VjZNK6hc:A0<JU:i5oR7LA]9W",
+  "XcW5FW4cPArBXEk4vzKz3CIrMuA5EVVW",
+  "A63E-01C28055905",
+];
+
+function checkTrackedLeaks() {
+  const root = findRepoRoot(process.cwd());
+  if (!root) return;
+  let files = [];
+  try {
+    files = execFileSync("git", ["ls-files"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .split("\n")
+      .map((name) => name.trim())
+      .filter(Boolean);
+  } catch {
+    return; // not a git checkout; skip
+  }
+  for (const rel of files) {
+    if (SECRET_SCAN_SKIP.has(rel.replace(/\\/g, "/"))) continue;
+    const normalized = `/${rel.replace(/\\/g, "/")}/`;
+    if (FORBIDDEN_TRACKED_PARTS.some((part) => normalized.includes(part.replace(/\\/g, "/")))) {
+      failures.push(`tracked file looks like local runtime/secret data: ${rel}`);
+      continue;
+    }
+    if (rel.startsWith("data/")) {
+      failures.push(`tracked file under repo data/ directory: ${rel}`);
+      continue;
+    }
+    const abs = path.join(root, rel);
+    if (!fs.existsSync(abs) || fs.statSync(abs).size > 256 * 1024) continue;
+    try {
+      const content = fs.readFileSync(abs, "utf8");
+      if (FORBIDDEN_SECRET_FRAGMENTS.some((fragment) => content.includes(fragment))) {
+        failures.push(`tracked file contains known SDGB secret material: ${rel}`);
+      }
+    } catch {
+      // binary/unreadable; skip
+    }
+  }
+}
+
+checkTrackedLeaks();
 
 const [major, minor] = process.versions.node.split(".").map(Number);
 if (major < 22 || (major === 22 && minor < 5)) {

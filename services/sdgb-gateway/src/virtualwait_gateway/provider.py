@@ -8,6 +8,7 @@ from urllib.parse import unquote
 
 from .security import identity_subject
 from .transport import http_post_json, TransportError
+from .sdgb_full import SdgbFullSettings, SdgbFullVerificationService
 from .sdgb_preview import SdgbPreviewError, SdgbPreviewSettings, preview_from_qr
 
 
@@ -266,3 +267,32 @@ class SdgbPreviewVerificationProvider:
     def retry_pending_logout(self, encrypted_context: bytes) -> bool:
         # Preview path never creates a cabinet login session.
         return True
+
+
+class SdgbFullVerificationProvider:
+    """真实登录 SDGB provider（登录校验身份 -> 立即登出）适配器。
+
+    包装 :class:`~virtualwait_gateway.sdgb_full.SdgbFullVerificationService`，
+    将其结果映射为 Gateway 的 :class:`ProviderResult`。
+    """
+
+    def __init__(self, settings: SdgbFullSettings, public_id_hmac_secret: str) -> None:
+        self._service = SdgbFullVerificationService(settings, public_id_hmac_secret)
+
+    def verify(self, qr_code: str) -> ProviderResult:
+        result = self._service.verify(qr_code)
+        if result.status == "SUCCEEDED":
+            return ProviderResult(
+                status="SUCCEEDED", subject=result.subject, profile=result.profile
+            )
+        if result.status == "LOGGING_OUT":
+            return ProviderResult(
+                status="LOGGING_OUT",
+                subject=result.subject,
+                profile=result.profile,
+                encrypted_logout_context=result.encrypted_logout_context,
+            )
+        return ProviderResult(status="FAILED", error_code=result.error_code or "LOGIN_FAILED")
+
+    def retry_pending_logout(self, encrypted_context: bytes) -> bool:
+        return self._service.retry_pending_logout(encrypted_context)

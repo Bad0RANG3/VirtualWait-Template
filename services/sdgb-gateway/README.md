@@ -2,11 +2,12 @@
 
 此目录提供 Web 与身份服务之间的签名边界实现：HMAC、时间戳、nonce、请求摘要、限流与 SQLite 作业状态。
 
-Gateway 现在支持三种 provider：
+Gateway 现在支持四种 provider：
 
 - `mock`：离线测试 provider，只接受 `mock:*` 二维码；
 - `http`：真实二维码 provider 适配器，把二维码转发给你自己配置的授权验证服务；
-- `sdgb_preview`：无登录预览链路（AiMe 扫码换 `userId/token`，再调 `GetUserPreviewApi`）。**不会**调用 `UserLoginApi` / `UserLogoutApi`，因此不会占用机台登录态。
+- `sdgb_preview`：无登录预览链路（AiMe 扫码换 `userId/token`，再调 `GetUserPreviewApi`）。**不会**调用 `UserLoginApi` / `UserLogoutApi`，因此不会占用机台登录态；
+- `sdgb_full`：**真实登录验证**（AiMe 换码 → `GetUserPreviewApi` 探测 isLogin → `UserLoginApi` → 取公开资料 → 立即 `UserLogoutApi`）。登出失败时保留 AES-GCM 加密恢复上下文，由 `LOGGING_OUT` 作业状态与恢复线程后台重试，确保“必登出”。
 
 ## 本地 Mock 运行
 
@@ -112,6 +113,38 @@ VW_SDGB_TIMEOUT_SEC=10
 4. 用 `VW_PUBLIC_ID_HMAC_SECRET` 把 `userID` 打成匿名 subject 后返回 Web。
 
 原始二维码、token、完整上游响应都不会入库。
+
+## 真实登录 SDGB provider（sdgb_full）
+
+与 `sdgb_preview` 相同的一组 `VW_SDGB_*` 配置，额外指定机厅位置：
+
+```env
+VW_GATEWAY_PROVIDER=sdgb_full
+VW_SDGB_AIME_URL=http://ai.sys-allnet.cn/wc_aime/api/get_data
+VW_SDGB_TITLE_SERVER_URL=https://maimai-gm.wahlap.com:42081/Maimai2Servlet
+VW_SDGB_AIME_SALT=<aime salt>
+VW_SDGB_AES_KEY=<title server aes key>
+VW_SDGB_AES_IV=<title server aes iv>
+VW_SDGB_OBFUSCATE_PARAM=<api hash salt>
+VW_SDGB_KEYCHIP_ID=<keychip id>
+VW_SDGB_CLIENT_ID=<client id>
+VW_SDGB_REGION_ID=1403
+VW_SDGB_PLACE_ID=1
+VW_SDGB_TIMEOUT_SEC=10
+```
+
+流程：
+
+1. AiMe `get_data` 换临时 `userId/token`（二维码截取末 64 位）；
+2. `GetUserPreviewApi` 探测：`isLogin=1`（小黑屋）或硬封禁（`banState>=2`）直接拒绝，不硬闯；
+3. `UserLoginApi` 登录（捕获 JSESSIONID 会话与登录时刻）；
+4. 从预览提取 `userName` / `playerRating` / `trophyId` 等最小公开字段；
+5. 立即 `UserLogoutApi` 登出（回传登录时刻）；若登出失败，把 `{userId, loginTs, cookie}`
+   用 `VW_PUBLIC_ID_HMAC_SECRET` 派生密钥做 AES-GCM 加密后存入 `pending_logout`，
+   由恢复线程重试，成功后作业才转为 `SUCCEEDED`。
+
+原始二维码、token、完整上游响应不会入库；`pending_logout` 只保存加密恢复上下文。
+
 
 ## 真实 provider 安全要求
 

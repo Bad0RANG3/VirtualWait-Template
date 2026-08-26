@@ -162,8 +162,9 @@ export function adminEntryAction(
         );
       }
     } else {
-      for (const member of members) {
-        finishOrExpireEntry(member.id, "DONE", "ADMIN", adminId, "admin_finish");
+      // 管理员结束游玩 = 玩家打完，自动回队尾继续排队（与用户 finishPlay 一致）。
+      if (!requeueToEnd(entry.queue_id, entry.id, ["PLAYING"])) {
+        throw new ServiceError("ADMIN_ACTION_NOT_ALLOWED");
       }
     }
   })();

@@ -26,7 +26,7 @@ flowchart TD
     K --> L{机台空闲且有队首？}
     L -- 否 --> K
     L -- 是 --> M[受保护的 Web Bot API]
-    M --> N[AstrBot 插件定时轮询]
+    M --> N[QQ 机器人（services/bot）定时轮询]
     N --> O{预热、冷却、QQ 校验通过？}
     O -- 否 --> N
     O -- 是 --> P[生成当前队列文本]
@@ -49,7 +49,7 @@ flowchart TD
 @玩家 A，请在3分钟内上机游玩
 ```
 
-最后一行的 @ 由 AstrBot 的 `At` 消息组件发送，在 QQ 中是可点击的 mention，不是普通文本。
+最后一行的 @ 由 OneBot v11 的 `MessageSegment.at` 发送，在 QQ 中是可点击的 mention，不是普通文本。
 
 ## 2. 部署前准备
 
@@ -64,9 +64,9 @@ flowchart TD
 ### 业务与第三方资料
 
 - 已替换示例城市、区县、机厅、机台和文案，详见[模板定制](TEMPLATE.md)；
-- 已获得授权的身份验证 provider。生产 Gateway 不能使用 `mock`；可使用自有 `http` provider 或已获授权的 `sdgb_preview`；
+- 已获得授权的身份验证 provider。生产 Gateway 不能使用 `mock`；可使用自有 `http` provider、已获授权的 `sdgb_preview`（无登录）或 `sdgb_full`（真实登录验证）；
 - 管理员令牌和上线后的管理员操作流程；
-- 若启用 QQ 叫号：已可用的 AstrBot 实例、可发送群消息的 QQ 机器人、每个机厅对应的群 UMO；
+- 若启用 QQ 叫号：已部署的 NapCat 与 `services/bot` 机器人（NoneBot2）、每个机厅对应的群 UMO；
 - 备份存储位置、数据保留期限、恢复演练和故障告警方案。
 
 ### 必须生成并妥善保存的值
@@ -77,7 +77,7 @@ flowchart TD
 |---|---|---|
 | `SESSION_SECRET` | Web | Web 会话密钥 |
 | `ADMIN_API_TOKEN` | Web | 管理台登录令牌 |
-| `BOT_API_TOKEN` | Web + AstrBot | 可选；两端必须一致 |
+| `BOT_API_TOKEN` | Web + Bot | 可选；两端必须一致 |
 | `PUBLIC_ID_HMAC_SECRET` | Web + Gateway | 两端必须完全一致 |
 | `GATEWAY_SHARED_SECRET` / `VW_GATEWAY_SHARED_SECRET` | Web + Gateway | 两端必须完全一致 |
 | `GATEWAY_KEY_ID` / `VW_GATEWAY_KEY_ID` | Web + Gateway | 两端必须完全一致 |
@@ -139,7 +139,7 @@ sudoedit /etc/virtualwait/gateway.env
 2. Web 数据目录为 `/var/lib/virtualwait/web`，Gateway 数据库为 `/var/lib/virtualwait/gateway/gateway.db`，备份目录为 `/var/backups/virtualwait`；
 3. 表格中标出的两端共享值严格一致，其他密钥全部独立；
 4. Web 保持 `GATEWAY_MODE=remote`、`GATEWAY_BASE_URL=http://127.0.0.1:8787`；
-5. Gateway 保持 `VW_GATEWAY_HOST=127.0.0.1`，并配置已授权的 `http` provider 或 `sdgb_preview`；
+5. Gateway 保持 `VW_GATEWAY_HOST=127.0.0.1`，并配置已授权的 `http` / `sdgb_preview` / `sdgb_full` provider；
 6. Nginx 确实会清洗并重写转发 IP 头后，才将 `TRUST_PROXY_HEADERS=true`；
 7. 需要 QQ 通知时设置非空的 `BOT_API_TOKEN`；否则留空即可关闭 Bot API。
 
@@ -215,20 +215,20 @@ sudo systemctl reload nginx
 
 HTTPS 是可选增强：若日后需要启用，可在 Nginx 或受控上游代理配置证书、开放 `443`，并把 `APP_BASE_URL` 改为对应的 `https://` 地址。使用 HTTP 时，生产 Cookie 不会标记为 `Secure`，因此应只用于受控内网、可信 Wi-Fi 或你能接受明文传输风险的场景；无论 HTTP 还是 HTTPS，都不要把 Gateway 的 `8787` 端口暴露到公网。
 
-## 4. 启用 AstrBot QQ 叫号（可选）
+## 4. 启用 QQ 机器人叫号（可选）
 
 1. 在 `web.env` 填入 `BOT_API_TOKEN` 并重启 Web：`sudo systemctl restart virtualwait-web`。
 2. 用 `ADMIN_API_TOKEN` 登录 `/admin`，在每个需要通知的机厅填写群 `groupUmo`。
-3. 将 `plugins/astrbot_plugin_virtualwait_queue/` 安装到 AstrBot 插件目录，并在 AstrBot 运行环境执行 `pip install -r requirements.txt`。
-4. 在 AstrBot 插件配置中填写：
+3. 部署 NapCat 与 `services/bot` 机器人（NoneBot2），在 `services/bot/.env` 填写 `ONEBOT_WS_URLS`、`QUEUE_NOTIFY_BASE_URL`、`QUEUE_NOTIFY_BOT_TOKEN`（详见 [services/bot/README.md](../services/bot/README.md)）。
+4. 在 `services/bot/.env` 中填写：
 
 ```text
-base_url=与 APP_BASE_URL 相同的 http:// 或 https:// 地址
-bot_token=与 Web 的 BOT_API_TOKEN 完全一致
-reminder_minutes=3
+QUEUE_NOTIFY_BASE_URL=与 APP_BASE_URL 相同的 http:// 或 https:// 地址
+QUEUE_NOTIFY_BOT_TOKEN=与 Web 的 BOT_API_TOKEN 完全一致
+QUEUE_NOTIFY_REMINDER_MINUTES=3
 ```
 
-`groupUmo` 优先于插件 `routing` 和 `default_umo`。插件的完整配置、冷却、预热与排错说明见[队列通知联动](QUEUE_NOTIFY.md)。
+`groupUmo` 优先于 `QUEUE_NOTIFY_ROUTING` 与 `QUEUE_NOTIFY_DEFAULT_GROUP`。机器人的完整配置、冷却、预热与排错说明见[队列通知联动](QUEUE_NOTIFY.md)。
 
 ## 5. 上线验收与日常维护
 

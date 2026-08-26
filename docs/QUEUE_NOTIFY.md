@@ -1,6 +1,6 @@
 # 队列监听与自动通知
 
-本文描述 VirtualWait Web 与 AstrBot 插件之间的**机台空闲 → 群内 @ 队首**联动：数据模型、Bot API、插件行为、限流与联调计划。实现以代码为准。
+本文描述 VirtualWait Web 与 QQ 机器人插件（`services/bot`，NoneBot2）之间的**机台空闲 → 群内 @ 队首**联动：数据模型、Bot API、插件行为、限流与联调计划。实现以代码为准。
 
 ## 1. 目标与边界
 
@@ -39,7 +39,7 @@
 | 项 | 值 |
 |----|-----|
 | 存储 | `venue.group_umo` |
-| 语义 | AstrBot 统一消息原点（UMO），如 `aiocqhttp:GroupMessage:123456789` |
+| 语义 | 群标识。兼容纯数字群号 `123456789` 与 AstrBot UMO 格式 `aiocqhttp:GroupMessage:123456789`（NoneBot 插件归一化为纯数字群号） |
 | 管理 | 管理员场地保存接口字段 `groupUmo` |
 | 下发 | Bot catalog / queue 详情中的 `groupUmo` |
 
@@ -97,14 +97,15 @@ head_key     := "{machineSlug}_" + "_".join(sorted(有效 qq 列表))
 | `BOT_CATALOG_RATE_LIMIT` | 20 | catalog 每分钟上限 |
 | `BOT_QUEUE_RATE_LIMIT` | 120 | queue 详情每分钟上限 |
 
-## 5. AstrBot 插件（Task3）
+## 5. QQ 机器人插件（services/bot，NoneBot2）
 
-路径：`plugins/astrbot_plugin_virtualwait_queue/`
+路径：`services/bot/plugins/queue_notify.py`（辅助函数 `services/bot/plugins/helpers.py`）。
+由原 AstrBot 插件移植，插件已统一到 NoneBot2，不再依赖 AstrBot / aiohttp。
 
 ### 5.1 轮询漏斗（三层）
 
-1. **Catalog**：全量摘要，筛热集。
-2. **Detail**：仅热集拉 `queue` 详情。
+1. **Catalog**：`/api/bot/catalog` 全量摘要，筛热集（`activeCount>0 || hasPlaying`）。
+2. **Detail**：仅热集拉 `/api/bot/queues/{venue}/{machine}` 详情。
 3. **Notify**：`machineIdle && head`，且通过冷却 / warmup / QQ 检查后发送。
 
 ### 5.2 冷却与 headKey
@@ -113,16 +114,17 @@ head_key     := "{machineSlug}_" + "_".join(sorted(有效 qq 列表))
 cooldown_key = f"{machineSlug}_{'_'.join(sorted(qqs))}"
 ```
 
-- 内存维护 `last_head_by_machine` 与 `cooldown_until[cooldown_key]`。
-- 队首 ID 集合变化且非空 -> 尝试通知；成功后写 last_head，冷却默认 **5 分钟**。
-- 用 **QQ 组合** 而非 entry/party id，避免卸卡后重排导致冷却失效。
+- 内存维护 `last_head_by_machine`。
+- 队首 QQ 组合变化且非空 -> 尝试通知；成功后写 last_head，**同一队首只 @ 一次**（不再重复）。
+- 用 **QQ 组合** 而非 entry/party id，避免重排后误判。
+- 队首 **3 分钟**（`HEAD_CONFIRM_TIMEOUT_SEC`）未确认上机时，Web 将其自动排到队尾，新队首会再次被 @。
 
 ### 5.3 群路由优先级
 
-1. 详情/目录中的 `groupUmo`（后端 `venues.group_umo`）
-2. 插件配置 `routing[venueSlug]`
-3. 插件配置 `district_routing["district:"+districtSlug]`（若配置）
-4. `default_umo`
+1. 详情/目录中的 `groupUmo`（后端 `venues.group_umo`；兼容 UMO 字符串与纯数字群号）
+2. 插件配置 `QUEUE_NOTIFY_ROUTING[venueSlug]`
+3. 插件配置 `QUEUE_NOTIFY_DISTRICT_ROUTING["district:"+districtSlug]`（若配置）
+4. `QUEUE_NOTIFY_DEFAULT_GROUP`
 
 ### 5.4 文案与双人
 
@@ -137,9 +139,8 @@ cooldown_key = f"{machineSlug}_{'_'.join(sorted(qqs))}"
 @玩家 A，请在3分钟内上机游玩
 ```
 
-双人组同一条消息 @ 所有已绑定 QQ 的成员；`@` 由 AstrBot `At` 组件发送，不是普通文本。
-
-发送：`context.send_message(umo, MessageChain([Comp.At(qq=...), Plain(...) ]))`。
+双人组同一条消息 @ 所有已绑定 QQ 的成员；`@` 由 OneBot v11
+`MessageSegment.at(user_id=...)` 发送（`bot.send_group_msg`），不是普通文本。
 
 ### 5.5 冷启动 / 限流 / 日志
 
@@ -147,22 +148,27 @@ cooldown_key = f"{machineSlug}_{'_'.join(sorted(qqs))}"
 |------|------|
 | Warmup | 进程启动后前 **2** 轮完整轮询只填缓存，不通知 |
 | 429 / 网络错误 | 指数退避（上限可配），再恢复基础间隔 |
-| 通知日志 | 一行 JSON：`event=queue_notify`，字段含 `venueSlug, machineSlug, qq, umo, cooldown_key` |
+| 通知日志 | 一行 JSON：`event=queue_notify`，字段含 `venueSlug, machineSlug, recipients`（脱敏，不含 QQ/群号） |
 | 无 QQ 统计 | 每 **10 分钟** 打 `skipped_no_qq_stats`（累计次数） |
 
-### 5.6 配置项
+### 5.6 配置项（.env，NoneBot 读取为小写属性）
 
 | 键 | 说明 |
 |----|------|
-| `base_url` | Web 根 |
-| `bot_token` | 与 `BOT_API_TOKEN` 一致 |
-| `poll_interval_sec` | 默认 8 |
-| `cooldown_sec` | 默认 300 |
-| `default_umo` | 兜底群 |
-| `routing` | `venueSlug -> umo` 映射 |
-| `warmup_rounds` | 默认 2 |
+| `QUEUE_NOTIFY_ENABLED` | 默认 true；false 关闭轮询 |
+| `QUEUE_NOTIFY_BASE_URL` | Web 根地址 |
+| `QUEUE_NOTIFY_BOT_TOKEN` | 与 `BOT_API_TOKEN` 一致 |
+| `QUEUE_NOTIFY_POLL_INTERVAL_SEC` | 默认 3 |
+| `QUEUE_NOTIFY_COOLDOWN_SEC` | 默认 300（同一队首只 @ 一次，冷却仅作兜底） |
+| `QUEUE_NOTIFY_REMINDER_MINUTES` | 默认 3 |
+| `QUEUE_NOTIFY_WARMUP_ROUNDS` | 默认 2 |
+| `QUEUE_NOTIFY_DEFAULT_GROUP` | 兜底群号 |
+| `QUEUE_NOTIFY_ROUTING` | `venueSlug -> 群号` JSON |
+| `QUEUE_NOTIFY_DISTRICT_ROUTING` | `district:<slug> -> 群号` JSON |
+| `QUEUE_NOTIFY_STATS_INTERVAL_SEC` | 默认 600 |
+| `QUEUE_NOTIFY_MAX_BACKOFF_SEC` | 默认 120 |
 
-依赖：`aiohttp`。
+依赖：`httpx`（已包含在 `services/bot/requirements.txt`）。
 
 ## 6. Test Plan（Task4）
 
@@ -203,4 +209,4 @@ BOT_QUEUE_RATE_LIMIT=120
 
 **玩家：** `/me` -> 绑定 QQ。
 
-**插件：** `base_url` + `bot_token` +（可选）`default_umo` / `routing`。
+**QQ 机器人（services/bot/.env）：** `QUEUE_NOTIFY_BASE_URL` + `QUEUE_NOTIFY_BOT_TOKEN` +（可选）`QUEUE_NOTIFY_DEFAULT_GROUP` / `QUEUE_NOTIFY_ROUTING`。

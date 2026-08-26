@@ -1,0 +1,60 @@
+# VirtualWait QQ 机器人（NapCat + NoneBot2）docker-compose。
+# 用法：cd infra/docker && docker compose -f docker-compose.bot.yml up -d --build
+# Web（apps/web）需另行部署，并在 .env 配置 BOT_API_TOKEN 与这里一致。
+services:
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    restart: unless-stopped
+    environment:
+      NAPCAT_UID: "${NAPCAT_UID:-1000}"
+      NAPCAT_GID: "${NAPCAT_GID:-1000}"
+      # 预置 OneBot v11 正向 WebSocket 服务端（0.0.0.0:3001）。
+      # MODE=ws 把 /app/templates/ws.json 复制为 onebot11.json，登录 QQ 后自动生效。
+      MODE: ws
+      WEBUI_TOKEN: "${WEBUI_TOKEN:-napcat}"
+    ports:
+      # NapCat WebUI：本机扫码登录机器人 QQ。
+      - "127.0.0.1:6099:6099"
+    volumes:
+      - napcat_qq:/app/.config/QQ
+      - napcat_config:/app/napcat/config
+
+  virtualwait-bot:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.bot
+    image: virtualwait-bot:latest
+    restart: unless-stopped
+    depends_on:
+      - napcat
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      DRIVER: "~httpx+~websockets"
+      # 连接 NapCat 的 OneBot v11 正向 WebSocket（MODE=ws 预置的 3001 服务端）。
+      ONEBOT_WS_URLS: '["ws://napcat:3001"]'
+      B50_DATA_DIR: /data
+      # 队列空闲通知（留空则通知插件退避，B50/FP 命令不受影响）
+      QUEUE_NOTIFY_BASE_URL: "${QUEUE_NOTIFY_BASE_URL:-http://web:3000}"
+      QUEUE_NOTIFY_BOT_TOKEN: "${QUEUE_NOTIFY_BOT_TOKEN:-}"
+      QUEUE_NOTIFY_DEFAULT_GROUP: "${QUEUE_NOTIFY_DEFAULT_GROUP:-}"
+      QUEUE_NOTIFY_ROUTING: "${QUEUE_NOTIFY_ROUTING:-{}}"
+      # SDGB 配置：环境变量方式（与 Gateway 相同），或复制 settings_local.py 进镜像
+      VW_SDGB_AIME_URL: "${VW_SDGB_AIME_URL:-}"
+      VW_SDGB_TITLE_SERVER_URL: "${VW_SDGB_TITLE_SERVER_URL:-}"
+      VW_SDGB_AIME_SALT: "${VW_SDGB_AIME_SALT:-}"
+      VW_SDGB_AES_KEY: "${VW_SDGB_AES_KEY:-}"
+      VW_SDGB_AES_IV: "${VW_SDGB_AES_IV:-}"
+      VW_SDGB_OBFUSCATE_PARAM: "${VW_SDGB_OBFUSCATE_PARAM:-}"
+      VW_SDGB_KEYCHIP_ID: "${VW_SDGB_KEYCHIP_ID:-}"
+      VW_SDGB_CLIENT_ID: "${VW_SDGB_CLIENT_ID:-}"
+      VW_SDGB_REGION_ID: "${VW_SDGB_REGION_ID:-1403}"
+      VW_SDGB_PLACE_ID: "${VW_SDGB_PLACE_ID:-1}"
+    # 无入站端口：机器人出站连接 NapCat WebSocket。
+    volumes:
+      - b50_data:/data
+
+volumes:
+  napcat_qq:
+  napcat_config:
+  b50_data:

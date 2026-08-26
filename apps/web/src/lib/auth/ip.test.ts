@@ -28,10 +28,20 @@ test("client IP ignores proxy headers unless the deployment explicitly trusts sa
   );
 });
 
-test("client IP uses only the first sanitized X-Forwarded-For address", () => {
+test("client IP uses the rightmost sanitized X-Forwarded-For address (closest trusted proxy)", () => {
   assert.equal(
     clientIpFromHeaders(
       headers({ "x-forwarded-for": "203.0.113.10, 198.51.100.9" }),
+      true,
+    ),
+    "198.51.100.9",
+  );
+});
+
+test("client IP handles a single-value X-Forwarded-For (proxy overwrite mode)", () => {
+  assert.equal(
+    clientIpFromHeaders(
+      headers({ "x-forwarded-for": "203.0.113.10" }),
       true,
     ),
     "203.0.113.10",

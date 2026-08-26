@@ -1,0 +1,6 @@
+# 本地配置与运行时缓存（含账号数据，勿提交）
+settings_local.py
+token_cache.json
+records_cache.json
+music_data_cache.json
+data/

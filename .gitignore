@@ -18,7 +18,7 @@
 .env
 .env.*
 !.env.example
-**/settings.py
+packages/sdgb-client/sdgb/settings_local.py
 **/*.sqlite
 **/*.sqlite3
 **/*.db
@@ -42,3 +42,15 @@
 # Python packaging leftovers
 **/build/
 **/*.egg-info/
+
+# QQ 机器人运行目录（NapCat 运行时/配置/日志/二维码，含账号数据，勿提交）
+**/napcat/
+**/qqnt.json
+**/webui.json
+
+# Bot / sdgb-client 运行时数据与缓存（含账号数据，勿提交）
+data/
+**/token_cache.json
+**/records_cache.json
+**/music_data_cache.json
+**/*.log

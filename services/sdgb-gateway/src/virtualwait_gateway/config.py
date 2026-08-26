@@ -114,6 +114,9 @@ class Settings:
     sdgb_keychip_id: str = ""
     sdgb_client_id: str = ""
     sdgb_timeout_sec: float = 10.0
+    # Real-login provider (sdgb_full) cabinet location used in login/logout payloads.
+    sdgb_region_id: int = 1403
+    sdgb_place_id: int = 1
     # Retry durable LOGGING_OUT jobs while the Gateway process remains alive.
     recovery_interval_sec: int = 5
     # HTTP server hardening
@@ -135,8 +138,8 @@ class Settings:
             raise ConfigError("VW_GATEWAY_ENV must be development, test, or production")
         production = environment == "production"
         provider = os.getenv("VW_GATEWAY_PROVIDER", "mock")
-        if provider not in {"mock", "http", "sdgb_preview"}:
-            raise ConfigError("VW_GATEWAY_PROVIDER must be mock, http, or sdgb_preview")
+        if provider not in {"mock", "http", "sdgb_preview", "sdgb_full"}:
+            raise ConfigError("VW_GATEWAY_PROVIDER must be mock, http, sdgb_preview, or sdgb_full")
         if production and provider == "mock":
             raise ConfigError("VW_GATEWAY_PROVIDER=mock is not allowed in production")
 
@@ -164,12 +167,14 @@ class Settings:
         sdgb_keychip_id = os.getenv("VW_SDGB_KEYCHIP_ID", "")
         sdgb_client_id = os.getenv("VW_SDGB_CLIENT_ID", "")
         sdgb_timeout_sec = _positive_float("VW_SDGB_TIMEOUT_SEC", 10.0)
-        if provider == "sdgb_preview":
+        sdgb_region_id = _positive_int("VW_SDGB_REGION_ID", 1403)
+        sdgb_place_id = _positive_int("VW_SDGB_PLACE_ID", 1)
+        if provider in {"sdgb_preview", "sdgb_full"}:
             raw_aime = os.getenv("VW_SDGB_AIME_URL", "").strip()
             raw_title = os.getenv("VW_SDGB_TITLE_SERVER_URL", "").strip()
             if not raw_aime or not raw_title:
                 raise ConfigError(
-                    "VW_SDGB_AIME_URL and VW_SDGB_TITLE_SERVER_URL are required when VW_GATEWAY_PROVIDER=sdgb_preview"
+                    "VW_SDGB_AIME_URL and VW_SDGB_TITLE_SERVER_URL are required when VW_GATEWAY_PROVIDER=sdgb_preview or sdgb_full"
                 )
             sdgb_aime_url = _safe_provider_url("VW_SDGB_AIME_URL", raw_aime, production)
             sdgb_title_server_url = _safe_provider_url(
@@ -186,7 +191,7 @@ class Settings:
             missing = [name for name, value in required.items() if not value.strip()]
             if missing:
                 raise ConfigError(
-                    "Missing SDGB preview settings: " + ", ".join(missing)
+                    "Missing SDGB settings: " + ", ".join(missing)
                 )
             # Key material must be real, not template placeholders, and strong
             # enough for the AES + HMAC machinery in production.
@@ -206,7 +211,7 @@ class Settings:
                 ]
                 if weak:
                     raise ConfigError(
-                        "SDGB preview secrets are too weak in production: " + ", ".join(weak)
+                        "SDGB secrets are too weak in production: " + ", ".join(weak)
                     )
 
         key_id = os.getenv("VW_GATEWAY_KEY_ID", "template-web-1")
@@ -250,6 +255,8 @@ class Settings:
             sdgb_keychip_id=sdgb_keychip_id,
             sdgb_client_id=sdgb_client_id,
             sdgb_timeout_sec=sdgb_timeout_sec,
+            sdgb_region_id=sdgb_region_id,
+            sdgb_place_id=sdgb_place_id,
             recovery_interval_sec=_positive_int("VW_GATEWAY_RECOVERY_INTERVAL_SEC", 5),
             max_http_workers=_positive_int("VW_GATEWAY_MAX_HTTP_WORKERS", 10),
             request_read_timeout_sec=_positive_float("VW_GATEWAY_REQUEST_READ_TIMEOUT_SEC", 10.0),
