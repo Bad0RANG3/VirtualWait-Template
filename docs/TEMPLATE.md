@@ -50,7 +50,7 @@ Web 始终使用签名远程 Gateway（`GATEWAY_MODE=remote`）。身份 mock �
 | 文件 | 职责 |
 |------|------|
 | `queue/user-actions.ts` | 加入、拼机确认、取消、队头确认上机、结束游玩 |
-| `queue/timeouts.ts` | 游玩超时回队尾、队头确认超时（后移/卸卡） |
+| `queue/timeouts.ts` | 游玩超时回队尾、队头确认超时自动排到队尾 |
 | `queue/core.ts` | 上机、重排、结束/过期、审计辅助 |
 | `queue/public.ts` | 公开队列与活跃人数统计 |
 | `queue/admin.ts` | 管理员队列与条目操作 |

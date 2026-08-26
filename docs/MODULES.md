@@ -51,7 +51,7 @@
 | `service.ts` | **稳定入口**（仅 re-export），路由/外部一律从此导入 |
 | `core.ts` | 原语：`audit`、`getParty`、`startEntries`、`requeueToEnd`、`finishOrExpireEntry`、`listActiveEntries` + 行类型 |
 | `user-actions.ts` | 用户操作：`joinQueue`（SOLO/DUO/加入拼机；事务内分配序号、部分唯一索引兜底并发、原子抢位 `joinExistingDuo`）、`confirmPair`、`cancelEntry`、`confirmStartPlay`、`finishPlay`、`getUserActiveEntries` |
-| `timeouts.ts` | `processTimeouts`：游玩超时重排队尾 + 队头确认窗口（`waitingGroups` 组级打点，duo 取最早戳；一次超时整组后移/独组 strike 重打，二次整组 CANCELLED + party DISBANDED） |
+| `timeouts.ts` | `processTimeouts`：游玩超时回队尾 + 队头确认窗口（`waitingGroups` 组级打点，duo 取最早戳；确认超时整组自动排到队尾，不卸卡） |
 | `views.ts` | `buildSlots`/`toPartyView`/`toEntryView`：行 → 对外视图（位置、`canConfirmStart`、公开资料脱敏） |
 | `public.ts` | `getPublicQueue`（只读无副作用、WAITING 截断至 200 防超大响应、`totalWaiting` 如实）、`countActiveEntries*` |
 | `maintenance.ts` | `runMaintenance`：超时处理 + 清理过期 attempt/限流桶/QR 槽/完成令牌(300s)/IP 日绑定/不活跃资料/终态队列/审计(365d)/session(30d) |
@@ -160,7 +160,7 @@
 |---|---|
 | `AppShell.tsx` | 全局外壳：粘性顶栏（Logo、登录/我的导航）+ 内容容器 |
 | `LocationPicker.tsx` | 级联选择器，直接消费 `CityDef`（与 /city 目录零漂移） |
-| `QueueBoard.tsx` | 队列板客户端：轮询（AbortController + 指数退避 3.5s→30s）、入队/卸卡/确认、溢出提示 |
+| `QueueBoard.tsx` | 队列板客户端：轮询（AbortController + 指数退避 3.5s→30s）、入队/取消/确认、结束回尾、溢出提示 |
 | `hooks/useQrVerificationFlow.ts` | 共享扫码验证 hook：提交一次 + 轮询 attempt 至离开 PROCESSING |
 | `QrLoginForm.tsx` | 扫码登录（轮询后凭完成令牌调 complete） |
 | `QrBindForm.tsx` | 扫码刷新/绑定资料（REGISTER_BIND/LOGIN_BIND） |
@@ -243,7 +243,7 @@
 | `auth/completion-capability.test.ts` | 一次性消费/purge |
 | `queue/maintenance.test.ts` | 隐私保留策略（含 session 清理） |
 | `queue/head-timeout.test.ts` | 队头超时（solo） |
-| `queue/head-timeout-duo.test.ts` | duo 组打点/strike/整组后移/二次罢免 |
+| `queue/head-timeout-duo.test.ts` | duo 组打点/整组自动排到队尾/不卸卡 |
 | `queue/bot.test.ts` | Bot 视图 |
 | `queue/join-qq.test.ts` | 入队前置（需绑 QQ） |
 | `queue/join-concurrency.test.ts` | 唯一索引兜底/原子抢位 |

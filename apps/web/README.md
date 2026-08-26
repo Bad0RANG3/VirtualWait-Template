@@ -76,7 +76,7 @@ npm run healthcheck
 | `queue/views.ts` | 展示槽位组装 |
 | `queue/maintenance.ts` | 保留策略清理 |
 
-规则摘要：队头在空闲机台上需在 `HEAD_CONFIRM_TIMEOUT_SEC`（默认 180s）内确认；第 1 次超时后移 1 组，第 2 次卸卡。游玩超时 `PLAYING_TIMEOUT_SEC`（默认 1500s）回队尾。完整流程见 [架构说明](../../docs/ARCHITECTURE.md)。
+规则摘要：队头在空闲机台上需在 `HEAD_CONFIRM_TIMEOUT_SEC`（默认 180s）内确认；确认超时整组自动**排到队尾**，不卸卡。结束游玩或游玩超时 `PLAYING_TIMEOUT_SEC`（默认 1500s）后自动回队尾继续排队（可取消离开）。完整流程见 [架构说明](../../docs/ARCHITECTURE.md)。
 
 ## 管理员能力（`/admin`）
 

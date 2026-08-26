@@ -79,8 +79,7 @@ Web、Gateway、管理员和 Bot 均使用不同的密钥或会话。管理员�
 | 结束 | 条目为 `PLAYING` | 整组/条目回到 `WAITING` 队尾（继续排队，可取消离开）。 |
 | 用户取消 | 自己的条目为 `WAITING` | 条目 `CANCELLED`；双人队按成员关系拆分或解散。 |
 | 游玩超时 | `playing_at` 超过 `PLAYING_TIMEOUT_SEC` | 整组回到等待队尾。 |
-| 队头首次超时 | 空闲机台，队首未在 `HEAD_CONFIRM_TIMEOUT_SEC` 内确认 | 整组后移一组，计一次 miss。 |
-| 队头确认超时 | 队首在确认窗口（默认 180 秒）内未上机 | 整组自动**排到队尾**，下一位队首重新计时。 |
+| 队头确认超时 | 空闲机台，队首未在 `HEAD_CONFIRM_TIMEOUT_SEC`（默认 180 秒）内确认上机 | 整组自动**排到队尾**，下一位队首重新计时，不卸卡。 |
 
 默认 `PLAYING_TIMEOUT_SEC=1500`、`HEAD_CONFIRM_TIMEOUT_SEC=180`。管理员可写入 `app_settings` 覆盖环境默认值。超时处理会由公开读、用户动作、管理员动作和维护过程共同触发；不能仅依赖单一 cron。
 

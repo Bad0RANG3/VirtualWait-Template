@@ -15,7 +15,7 @@ const ERROR_MAP: Record<string, [number, string]> = {
   QUEUE_NOT_FOUND: [404, "队列不存在"],
   QUEUE_NOT_OPEN: [409, "队列未开放"],
   QUEUE_OUTSIDE_HOURS: [409, "当前不在开放时间"],
-  ALREADY_IN_ANOTHER_QUEUE: [409, "你已在其他机台排队，请先卸卡"],
+  ALREADY_IN_ANOTHER_QUEUE: [409, "你已在其他机台排队，请先取消排队"],
   ENTRY_NOT_FOUND: [404, "排队记录不存在"],
   FORBIDDEN: [403, "无权操作该记录"],
   INVALID_STATUS: [409, "当前状态不可执行该操作"],

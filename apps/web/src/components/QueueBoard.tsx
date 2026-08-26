@@ -189,7 +189,7 @@ function MySlotActions({ myEntry, busy, accentBtn, act }: {
       {myEntry.status === "WAITING" && (
         <button className="btn-ghost" disabled={busy === "cancel"}
           onClick={() => act(`/api/entries/${myEntry.id}/cancel`, undefined, "cancel")}>
-          <LogOut className="h-4 w-4" />{busy === "cancel" ? "卸卡中…" : "卸卡"}
+          <LogOut className="h-4 w-4" />{busy === "cancel" ? "取消中…" : "取消排队"}
         </button>
       )}
       {myEntry.party?.canConfirmPair && (
@@ -226,7 +226,7 @@ function MySlotCard({ mySlot, myEntry, data, nowMs }: {
           )}
           {myEntry?.status === "WAITING" && myEntry.canConfirmStart && (
             <div className="mt-1 text-sm font-medium text-mint-700">
-              请确认上机{deadline && <> · {formatRemain(deadline, nowMs)}{myEntry.headMissCount >= 1 ? " · 超时卸卡" : " · 超时后移"}</>}
+              请确认上机{deadline && <> · {formatRemain(deadline, nowMs)} · 超时回尾</>}
             </div>
           )}
           {myEntry?.status === "WAITING" && mySlot.position === 1 && !myEntry.canConfirmStart &&
