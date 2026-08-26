@@ -87,14 +87,18 @@ npm run dev
 
 打开 http://localhost:3000，用 `mock:*` 二维码体验完整排队流程。
 
-### 3. 启动 QQ 机器人（可选，推荐 Docker 一键）
+### 3. 启动 QQ 机器人（可选，推荐 Docker 预构建镜像）
+
+仓库 `dist/` 提供**预构建离线包**（gitignored）：`virtualwait-bot.1.0.0.tar.gz`（仅机器人，~54 MB）与 `virtualwait-qqbot-stack.1.0.0.tar.gz`（NapCat + 机器人全栈，~620 MB）。加载后直接可用，无需构建：
 
 ```bash
-docker compose -f infra/docker/docker-compose.bot.yml up -d --build
+docker load -i dist/virtualwait-qqbot-stack.1.0.0.tar.gz
+# 改代码时才现场构建：docker compose -f infra/docker/docker-compose.bot.yml up -d --build
+docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
 docker compose -f infra/docker/docker-compose.bot.yml logs napcat | grep -E "WebUi (Token|User Panel Url)"
 ```
 
-按日志地址打开 WebUI 扫码登录机器人 QQ 即可。Web 侧需在 `.env.local` 填写 `BOT_API_TOKEN`，并和 compose 的 `QUEUE_NOTIFY_BOT_TOKEN` 保持一致。完整说明见 [services/bot/DEPLOY.md](services/bot/DEPLOY.md)。
+按日志地址打开 WebUI 扫码登录机器人 QQ 即可（唯一手动步骤）。机厅密钥通过 `infra/docker/.env` 的 `VW_SDGB_*` 注入，**镜像内不含密钥**；Web 侧需在 `.env.local` 填写 `BOT_API_TOKEN`，并和 compose 的 `QUEUE_NOTIFY_BOT_TOKEN` 保持一致。完整说明见 [services/bot/DEPLOY.md](services/bot/DEPLOY.md)。
 
 ## 生产部署
 
@@ -109,13 +113,14 @@ docker compose -f infra/docker/docker-compose.bot.yml logs napcat | grep -E "Web
 5. 启用备份与健康检查 timer，保持 `virtualwait-maintenance` 常驻；
 6. QQ 机器人按方式 B（Docker）或本机 venv 部署。
 
-### 方式 B：QQ 机器人 Docker 一键 — 推荐
+### 方式 B：QQ 机器人 Docker 预构建镜像 — 推荐
 
 ```bash
-docker compose -f infra/docker/docker-compose.bot.yml up -d --build
+docker load -i dist/virtualwait-qqbot-stack.1.0.0.tar.gz
+docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
 ```
 
-NapCat + NoneBot2 一起拉起，OneBot v11 正向 WebSocket 已预置，唯一手动步骤是扫码登录 QQ。详见 [services/bot/DEPLOY.md](services/bot/DEPLOY.md)。
+NapCat + NoneBot2 一起拉起，OneBot v11 正向 WebSocket 已预置，唯一手动步骤是扫码登录 QQ；机器人为预构建镜像，密钥全部环境变量注入。源码部署用 `--build`，详见 [services/bot/DEPLOY.md](services/bot/DEPLOY.md)。
 
 ### 方式 C：本地 / 内网开发
 

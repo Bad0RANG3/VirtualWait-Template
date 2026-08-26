@@ -20,10 +20,13 @@ services:
       - napcat_config:/app/napcat/config
 
   virtualwait-bot:
+    # 默认使用预构建镜像 virtualwait-bot:latest（docker load 后免构建）；
+    # 源码部署或改代码时保留 build 段，执行 docker compose up -d --build。
+    # 推送到镜像仓库后可用 VIRTUALWAIT_BOT_IMAGE=ghcr.io/xxx/virtualwait-bot:1.0.0 覆盖。
+    image: ${VIRTUALWAIT_BOT_IMAGE:-virtualwait-bot:latest}
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.bot
-    image: virtualwait-bot:latest
     restart: unless-stopped
     depends_on:
       - napcat
@@ -39,7 +42,7 @@ services:
       QUEUE_NOTIFY_BOT_TOKEN: "${QUEUE_NOTIFY_BOT_TOKEN:-}"
       QUEUE_NOTIFY_DEFAULT_GROUP: "${QUEUE_NOTIFY_DEFAULT_GROUP:-}"
       QUEUE_NOTIFY_ROUTING: "${QUEUE_NOTIFY_ROUTING:-{}}"
-      # SDGB 配置：环境变量方式（与 Gateway 相同），或复制 settings_local.py 进镜像
+      # SDGB 配置：仅环境变量方式（与 Gateway 相同）。预构建镜像内不含 settings_local.py，密钥禁止打进镜像
       VW_SDGB_AIME_URL: "${VW_SDGB_AIME_URL:-}"
       VW_SDGB_TITLE_SERVER_URL: "${VW_SDGB_TITLE_SERVER_URL:-}"
       VW_SDGB_AIME_SALT: "${VW_SDGB_AIME_SALT:-}"

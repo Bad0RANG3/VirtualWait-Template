@@ -268,7 +268,10 @@ QUEUE_NOTIFY_REMINDER_MINUTES=3
 仓库已提供 `infra/docker/docker-compose.bot.yml`，同时拉起 NapCat（OneBot v11）与 VirtualWait 机器人（NoneBot2），OneBot 正向 WebSocket 已预置，唯一手动步骤是扫码登录机器人 QQ：
 
 ```bash
-docker compose -f infra/docker/docker-compose.bot.yml up -d --build
+# 推荐：使用预构建离线包（dist/，含 NapCat + 机器人，免构建）
+docker load -i dist/virtualwait-qqbot-stack.1.0.0.tar.gz
+docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
+# 改代码时改用 --build 现场构建
 docker compose -f infra/docker/docker-compose.bot.yml logs napcat | grep -E "WebUi (Token|User Panel Url)"
 ```
 

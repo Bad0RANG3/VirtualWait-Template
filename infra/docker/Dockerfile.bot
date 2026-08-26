@@ -1,4 +1,24 @@
+# VirtualWait QQ 机器人镜像（可复用）。
+#
+# 设计约束：
+# - 只复制 services/bot、packages/sdgb-client 与入口脚本，**不复制**任何本地密钥
+#   （settings_local.py / .env* / napcat/ / data/ 等），密钥一律通过 VW_SDGB_* 环境变量注入；
+# - 与 docker-compose.bot.yml 配套：拉起后唯一手动步骤是扫码登录机器人 QQ。
+#
+# 构建（可选，通常直接用预构建镜像）：
+#   docker build -f infra/docker/Dockerfile.bot -t virtualwait-bot:latest .
+# 国内加速：
+#   docker build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple -f infra/docker/Dockerfile.bot -t virtualwait-bot:latest .
+
 FROM python:3.12-slim
+
+ARG VERSION=dev
+ARG PIP_INDEX_URL=https://pypi.org/simple
+
+LABEL org.opencontainers.image.title="virtualwait-bot" \
+      org.opencontainers.image.description="VirtualWait QQ 机器人（NoneBot2 + sdgb-client，NapCat OneBot v11）" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/Bad0RANG3/VirtualWait-Template"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -9,15 +29,12 @@ WORKDIR /app
 
 RUN addgroup --system app && adduser --system --ingroup app --home /app app
 
-# 可选的 PyPI 镜像源（国内构建加速）：
-#   docker build --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple -f infra/docker/Dockerfile.bot -t virtualwait-bot:latest .
-ARG PIP_INDEX_URL=https://pypi.org/simple
-
 COPY services/bot/requirements.txt ./services/bot/requirements.txt
 RUN python -m pip install --upgrade pip \
     && python -m pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" -r services/bot/requirements.txt
 
-COPY --chown=app:app . .
+COPY --chown=app:app services/bot ./services/bot
+COPY --chown=app:app packages/sdgb-client ./packages/sdgb-client
 COPY --chown=app:app infra/docker/entrypoint.bot.sh /usr/local/bin/virtualwait-bot
 
 RUN mkdir -p /data \

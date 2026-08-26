@@ -98,44 +98,79 @@ python bot.py
 
 ## 三、Docker 部署（推荐，开箱即用）
 
-仓库已提供一键编排（`infra/docker/docker-compose.bot.yml`），同时拉起 NapCat（OneBot 协议端）与 VirtualWait 机器人，适合 Linux 服务器 / NAS / Windows Docker Desktop。
+仓库提供 `infra/docker/docker-compose.bot.yml`，同时拉起 NapCat（OneBot 协议端）与 VirtualWait 机器人（NoneBot2）。**WebSocket 已预置好**：compose 给 NapCat 设了 `MODE=ws`，官方镜像会自动启用 OneBot v11 正向 WebSocket 服务端（`0.0.0.0:3001`）；登录 QQ 后 B50 机器人即通过 `ws://napcat:3001` 连上。整个链路**唯一手动步骤就是扫码登录 QQ**。
 
-**WebSocket 已预置好**：compose 给 NapCat 设了 `MODE=ws`，官方镜像会自动启用
-OneBot v11 **正向 WebSocket 服务端（0.0.0.0:3001）**，并把配置写入
-`onebot11.json`；登录 QQ 后 NapCat 自动加载它，B50 机器人即通过
-`ws://napcat:3001` 连上。整个链路**唯一手动步骤就是扫码登录 QQ**。
+机器人镜像为**预构建、可复用**：镜像内不包含任何密钥或运行数据（`settings_local.py`、`.env`、`napcat/`、QQ 登录态均不会打进镜像），SDGB 机厅密钥一律通过环境变量注入。
 
-### 1. 准备机厅配置
+### 3.1 使用预构建镜像 / 离线包（推荐，免构建）
 
-```bash
-cp ../../packages/sdgb-client/sdgb/settings_local.example.py ../../packages/sdgb-client/sdgb/settings_local.py
-```
+仓库的 `dist/` 目录（gitignored）提供已打包产物，`SHA256SUMS.txt` 可校验完整性：
 
-`settings_local.py` 含密钥，已在本地填写好后**直接打进镜像**（已加入 `.gitignore`，不进 Git 仓库）。注意：镜像里带有机厅密钥，切勿推送到公开镜像仓库。
+| 产物 | 内容 | 体积 |
+|---|---|---|
+| `dist/virtualwait-bot.1.0.0.tar.gz` | 仅机器人镜像 | ~54 MB |
+| `dist/virtualwait-qqbot-stack.1.0.0.tar.gz` | 机器人 + NapCat 全栈（离线/内网推荐） | ~620 MB |
 
-### 2. 构建并启动
+1. 加载镜像（全栈包一条命令，含 NapCat）：
 
 ```bash
-docker compose -f infra/docker/docker-compose.bot.yml up -d --build
+docker load -i dist/virtualwait-qqbot-stack.1.0.0.tar.gz
+# 仅机器人镜像时还要确保 NapCat 可达：docker pull mlikiowa/napcat-docker:latest
 ```
 
-### 3. 登录机器人 QQ（唯一手动步骤）
+2. 在 `infra/docker/` 下准备 `.env`，注入机厅密钥与叫号配置（**不要**改 `settings_local.py`，镜像里没有它）：
+
+```bash
+cd infra/docker
+cat > .env <<'EOF'
+# 与 Web 的 BOT_API_TOKEN 一致（队列叫号用；留空则仅 B50/FP 可用）
+QUEUE_NOTIFY_BASE_URL=http://你的Web地址:3000
+QUEUE_NOTIFY_BOT_TOKEN=<与 Web 的 BOT_API_TOKEN 一致>
+QUEUE_NOTIFY_DEFAULT_GROUP=<通知群号，留空则按场地 groupUmo 路由>
+# SDGB 机厅密钥（与 Gateway 同一组 VW_SDGB_*）
+VW_SDGB_AIME_URL=http://ai.sys-allnet.cn/wc_aime/api/get_data
+VW_SDGB_TITLE_SERVER_URL=https://maimai-gm.wahlap.com:42081/Maimai2Servlet
+VW_SDGB_AIME_SALT=<aime salt>
+VW_SDGB_AES_KEY=<title server aes key>
+VW_SDGB_AES_IV=<title server aes iv>
+VW_SDGB_OBFUSCATE_PARAM=<api hash salt>
+VW_SDGB_KEYCHIP_ID=<keychip id>
+VW_SDGB_CLIENT_ID=<client id>
+VW_SDGB_REGION_ID=1403
+VW_SDGB_PLACE_ID=1
+EOF
+```
+
+3. 启动（`--no-build` 表示直接使用已加载的预构建镜像，不现场构建）：
+
+```bash
+docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
+```
+
+4. 扫码登录机器人 QQ（唯一手动步骤）：
 
 ```bash
 docker compose -f infra/docker/docker-compose.bot.yml logs napcat | grep -E "WebUi (Token|User Panel Url)"
 ```
 
-用日志里的完整地址打开 WebUI 扫码登录（首次启动 NapCat 会把默认 token 随机化，
-所以地址以日志为准；也可用 `WEBUI_TOKEN=<强密码> docker compose -f infra/docker/docker-compose.bot.yml up -d` 固定它）。
-该端口仅建议本机访问，勿暴露公网。
+用日志里的完整地址打开 WebUI 扫码登录（首次启动 NapCat 会把默认 token 随机化，所以地址以日志为准；也可用 `WEBUI_TOKEN=<强密码> docker compose -f infra/docker/docker-compose.bot.yml up -d` 固定它）。该端口仅建议本机访问，勿暴露公网。
 
-登录成功后自动完成：
+登录成功后自动完成：NapCat 监听 3001 → B50 机器人自动连上（日志出现 `OneBot V11 | Bot <QQ号> connected`）→ 私聊机器人发 `/help` 即可使用。
 
-1. NapCat 加载预置 OneBot v11 配置，3001 正向 WS 开始监听；
-2. B50 机器人自动连上，日志出现 `OneBot V11 | Bot <QQ号> connected`；
-3. QQ 私聊机器人发 `/help` 返回功能菜单，即开箱可用。
+### 3.2 源码构建（开发 / 改代码时）
 
-### 4. 验证
+```bash
+docker compose -f infra/docker/docker-compose.bot.yml up -d --build
+```
+
+机厅密钥同样通过 `infra/docker/.env` 的环境变量注入；镜像构建上下文有白名单式 `.dockerignore`，**不会**包含本地密钥/运行数据。如需使用自定义镜像仓库或标签：
+
+```bash
+VIRTUALWAIT_BOT_IMAGE=ghcr.io/你的账号/virtualwait-bot:1.0.0 \
+  docker compose -f infra/docker/docker-compose.bot.yml up -d
+```
+
+### 3.3 验证
 
 ```bash
 docker compose -f infra/docker/docker-compose.bot.yml ps
@@ -144,20 +179,19 @@ docker compose -f infra/docker/docker-compose.bot.yml logs -f virtualwait-bot
 
 NoneBot 日志出现 `OneBot V11 | Bot <QQ号> connected` 即链路打通。
 
-### 5. 运维
+### 3.4 运维
 
-- 改完 `settings_local.py` 后重新构建并重启：`docker compose -f infra/docker/docker-compose.bot.yml up -d --build virtualwait-bot`
+- 改 `infra/docker/.env` 后重启：`docker compose -f infra/docker/docker-compose.bot.yml up -d`
 - `docker compose -f infra/docker/docker-compose.bot.yml down`：停止（保留 QQ 登录态与数据卷）
-- `git pull && docker compose -f infra/docker/docker-compose.bot.yml up -d --build`：升级
-- 内网/离线迁移：`docker save virtualwait-bot:latest mlikiowa/napcat-docker:latest | gzip > virtualwait-stack.tar.gz`，目标机 `gunzip -c ... | docker load` 后 `docker compose -f infra/docker/docker-compose.bot.yml up -d`（免构建）
+- 升级镜像：`docker load -i dist/virtualwait-qqbot-stack.<新版本>.tar.gz && docker compose -f infra/docker/docker-compose.bot.yml up -d`
+- 从源码升级：`git pull && docker compose -f infra/docker/docker-compose.bot.yml up -d --build`
 
 QQ 登录态、NapCat 配置与 B50 缓存分别保存在命名卷 `napcat_qq`、`napcat_config`、`b50_data` 中；`docker compose -f infra/docker/docker-compose.bot.yml down -v` 会删除它们，需重新登录。
 
 > 旧部署升级：若之前未配 `MODE=ws` 时已登录过，需删除 NapCat 卷里的
 > `onebot11_<QQ号>.json`（或 WebUI 里给账号新建 3001 正向 WS），让预置配置重新生效。
 >
-> 仅构建机器人镜像：`docker build -f infra/docker/Dockerfile.bot -t virtualwait-bot:latest .`，编排与配置见 `infra/docker/`。
-
+> 仅重新打包机器人镜像：`docker build -f infra/docker/Dockerfile.bot -t virtualwait-bot:1.0.0 -t virtualwait-bot:latest .`，编排与配置见 `infra/docker/`。
 ## 四、验证与使用
 
 1. QQ 里私聊机器人发 `/help`，返回菜单即成功

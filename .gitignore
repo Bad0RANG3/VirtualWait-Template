@@ -54,3 +54,6 @@ data/
 **/records_cache.json
 **/music_data_cache.json
 **/*.log
+
+# 预构建镜像产物（体积大，不入库）
+dist/
