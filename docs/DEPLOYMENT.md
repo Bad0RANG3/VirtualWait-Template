@@ -4,6 +4,16 @@
 
 > 当前持久层为 SQLite，适合单机、单实例部署。不要把同一个 `VIRTUALWAIT_DATA_DIR` 放到多台 Web 实例上共享，也不要在未迁移到服务型数据库前做负载均衡。
 
+## 0. 部署方式一览
+
+| 方式 | 内容 | 适用 | 文档 |
+|---|---|---|---|
+| A. Linux 全栈（systemd） | Web + Gateway + 维护/备份/健康检查 + 可选 QQ 机器人 | 生产推荐 | 本文第 2~3 节、[infra/server/README.md](../infra/server/README.md) |
+| B. QQ 机器人 Docker 一键 | NapCat + NoneBot2 容器 | 机器人部署推荐 | [services/bot/DEPLOY.md](../services/bot/DEPLOY.md)、本文 4.1 |
+| C. 本地 / 内网开发 | 本机直接跑 Gateway + Web + 可选机器人 | 开发、演示 | 根目录 [README](../README.md) 快速开始 |
+
+方式 A 与 B 可组合：Web/Gateway 用 systemd 跑，机器人用 Docker 跑。所有方式都要求 Web 与 Gateway 的共享密钥（`GATEWAY_SHARED_SECRET`、`PUBLIC_ID_HMAC_SECRET`、`GATEWAY_KEY_ID`）严格一致。
+
 ## 1. 系统如何运作
 
 ```mermaid
@@ -84,6 +94,31 @@ flowchart TD
 | provider 凭据 | Gateway | 仅限已授权的服务 |
 
 可用 `openssl rand -hex 32` 生成随机值；生成后不要把结果粘贴到工单、截图、聊天记录或 Git 提交中。
+
+### 2.3 接入真实身份 provider（sdgb_full 示例）
+
+生产环境禁止使用 `mock`。若使用 `sdgb_full`（真实登录验证），在 Gateway 环境文件中启用并填写已授权的 SDGB 配置：
+
+```env
+VW_GATEWAY_PROVIDER=sdgb_full
+VW_SDGB_AIME_URL=http://ai.sys-allnet.cn/wc_aime/api/get_data
+VW_SDGB_TITLE_SERVER_URL=https://maimai-gm.wahlap.com:42081/Maimai2Servlet
+VW_SDGB_AIME_SALT=<aime salt>
+VW_SDGB_AES_KEY=<title server aes key>
+VW_SDGB_AES_IV=<title server aes iv>
+VW_SDGB_OBFUSCATE_PARAM=<api hash salt>
+VW_SDGB_KEYCHIP_ID=<keychip id>
+VW_SDGB_CLIENT_ID=<client id>
+VW_SDGB_REGION_ID=1403
+VW_SDGB_PLACE_ID=1
+VW_SDGB_TIMEOUT_SEC=10
+```
+
+要点：
+
+- 这些值来自你方已获得的机厅授权，**禁止写入仓库或示例文件**；Gateway 侧可通过环境变量注入，机器人侧可复用同一组 `VW_SDGB_*` 或使用 gitignored 的 `packages/sdgb-client/sdgb/settings_local.py`；
+- `sdgb_full` 流程：换码 → 探测 isLogin → `UserLoginApi` → 取公开资料 → 立即 `UserLogoutApi`；登出失败会进入 `LOGGING_OUT` 恢复作业，由 `VW_GATEWAY_RECOVERY_INTERVAL_SEC` 控制重试；
+- 自建验证服务时使用 `http` provider，配置 `VW_GATEWAY_HTTP_VERIFY_URL` 等参数，见 [Gateway README](../services/sdgb-gateway/README.md)。
 
 ## 3. 推荐部署步骤
 
@@ -227,6 +262,17 @@ QUEUE_NOTIFY_BASE_URL=与 APP_BASE_URL 相同的 http:// 或 https:// 地址
 QUEUE_NOTIFY_BOT_TOKEN=与 Web 的 BOT_API_TOKEN 完全一致
 QUEUE_NOTIFY_REMINDER_MINUTES=3
 ```
+
+### 4.1 机器人 Docker 一键部署（推荐）
+
+仓库已提供 `infra/docker/docker-compose.bot.yml`，同时拉起 NapCat（OneBot v11）与 VirtualWait 机器人（NoneBot2），OneBot 正向 WebSocket 已预置，唯一手动步骤是扫码登录机器人 QQ：
+
+```bash
+docker compose -f infra/docker/docker-compose.bot.yml up -d --build
+docker compose -f infra/docker/docker-compose.bot.yml logs napcat | grep -E "WebUi (Token|User Panel Url)"
+```
+
+打开日志中的 WebUI 地址扫码登录；`QUEUE_NOTIFY_BASE_URL` / `QUEUE_NOTIFY_BOT_TOKEN` 通过 compose 环境变量传入，`QUEUE_NOTIFY_BOT_TOKEN` 必须与 Web 的 `BOT_API_TOKEN` 一致。完整说明、离线迁移与排错见 [services/bot/DEPLOY.md](../services/bot/DEPLOY.md)。
 
 `groupUmo` 优先于 `QUEUE_NOTIFY_ROUTING` 与 `QUEUE_NOTIFY_DEFAULT_GROUP`。机器人的完整配置、冷却、预热与排错说明见[队列通知联动](QUEUE_NOTIFY.md)。
 

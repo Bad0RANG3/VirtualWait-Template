@@ -5,6 +5,7 @@
 | [架构与队列流程](ARCHITECTURE.md) | 拓扑、Web 模块地图、队列规则与 API 概览 |
 | [模块手册](MODULES.md) | 全模块参考：lib/API 路由/页面/组件/脚本/Gateway/Infra/测试 |
 | [模板定制](TEMPLATE.md) | 替换城市/场地/文案、身份接入、规则与测试 |
+| [约束与红线](CONSTRAINTS.md) | 不得破坏的流程、密钥与敏感文件、架构和行为约束 |
 | [安全与发布清单](SECURITY.md) | 密钥、数据、日志、部署与发布检查项 |
 | [技术规格与上线验收](TECHNICAL_SPEC.md) | 系统边界、状态机、数据、安全、运维和验收标准 |
 | [队列通知联动](QUEUE_NOTIFY.md) | QQ 绑定、Bot API、NoneBot2 插件与联调计划 |
