@@ -89,11 +89,11 @@ npm run dev
 
 ### 3. 启动 QQ 机器人（可选，推荐 Docker 预构建镜像）
 
-仓库 `dist/` 提供**预构建离线包**（gitignored）：`virtualwait-bot.1.0.0.tar.gz`（仅机器人，~54 MB）与 `virtualwait-qqbot-stack.1.0.0.tar.gz`（NapCat + 机器人全栈，~620 MB）。加载后直接可用，无需构建：
+机器人镜像已发布到 Docker Hub **`bad0rang3/maidxtool`**，在线直接拉取；离线/内网用仓库 `dist/` 的预构建包（`virtualwait-qqbot-stack.1.0.0.tar.gz`，NapCat + 机器人全栈 ~620 MB）：
 
 ```bash
-docker load -i dist/virtualwait-qqbot-stack.1.0.0.tar.gz
-# 改代码时才现场构建：docker compose -f infra/docker/docker-compose.bot.yml up -d --build
+# 在线：docker pull bad0rang3/maidxtool:latest
+# 离线：docker load -i dist/virtualwait-qqbot-stack.1.0.0.tar.gz
 docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
 docker compose -f infra/docker/docker-compose.bot.yml logs napcat | grep -E "WebUi (Token|User Panel Url)"
 ```
@@ -116,11 +116,12 @@ docker compose -f infra/docker/docker-compose.bot.yml logs napcat | grep -E "Web
 ### 方式 B：QQ 机器人 Docker 预构建镜像 — 推荐
 
 ```bash
-docker load -i dist/virtualwait-qqbot-stack.1.0.0.tar.gz
+# 在线（Docker Hub）：docker pull bad0rang3/maidxtool:latest
+# 离线：docker load -i dist/virtualwait-qqbot-stack.1.0.0.tar.gz
 docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
 ```
 
-NapCat + NoneBot2 一起拉起，OneBot v11 正向 WebSocket 已预置，唯一手动步骤是扫码登录 QQ；机器人为预构建镜像，密钥全部环境变量注入。源码部署用 `--build`，详见 [services/bot/DEPLOY.md](services/bot/DEPLOY.md)。
+NapCat + NoneBot2 一起拉起，OneBot v11 正向 WebSocket 已预置，唯一手动步骤是扫码登录 QQ；机器人为 Docker Hub 预构建镜像，密钥全部环境变量注入。源码部署用 `--build`，详见 [services/bot/DEPLOY.md](services/bot/DEPLOY.md)。
 
 ### 方式 C：本地 / 内网开发
 

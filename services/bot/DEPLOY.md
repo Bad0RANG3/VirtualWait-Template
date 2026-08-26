@@ -102,16 +102,21 @@ python bot.py
 
 机器人镜像为**预构建、可复用**：镜像内不包含任何密钥或运行数据（`settings_local.py`、`.env`、`napcat/`、QQ 登录态均不会打进镜像），SDGB 机厅密钥一律通过环境变量注入。
 
-### 3.1 使用预构建镜像 / 离线包（推荐，免构建）
+### 3.1 使用预构建镜像（推荐，免构建）
 
-仓库的 `dist/` 目录（gitignored）提供已打包产物，`SHA256SUMS.txt` 可校验完整性：
+**在线（Docker Hub）**：机器人镜像已发布到 `bad0rang3/maidxtool`，直接拉取即可：
+
+```bash
+docker pull bad0rang3/maidxtool:latest
+# NapCat 会自动从官方仓库拉取；内网/离线时改用下面的离线包
+```
+
+**离线 / 内网**：仓库 `dist/` 目录（gitignored）提供已打包产物，`SHA256SUMS.txt` 可校验完整性：
 
 | 产物 | 内容 | 体积 |
 |---|---|---|
 | `dist/virtualwait-bot.1.0.0.tar.gz` | 仅机器人镜像 | ~54 MB |
 | `dist/virtualwait-qqbot-stack.1.0.0.tar.gz` | 机器人 + NapCat 全栈（离线/内网推荐） | ~620 MB |
-
-1. 加载镜像（全栈包一条命令，含 NapCat）：
 
 ```bash
 docker load -i dist/virtualwait-qqbot-stack.1.0.0.tar.gz
