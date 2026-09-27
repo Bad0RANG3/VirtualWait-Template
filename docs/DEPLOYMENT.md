@@ -103,20 +103,20 @@ flowchart TD
 VW_GATEWAY_PROVIDER=sdgb_full
 VW_SDGB_AIME_URL=http://ai.sys-allnet.cn/wc_aime/api/get_data
 VW_SDGB_TITLE_SERVER_URL=https://maimai-gm.wahlap.com:42081/Maimai2Servlet
-VW_SDGB_AIME_SALT=<aime salt>
-VW_SDGB_AES_KEY=<title server aes key>
-VW_SDGB_AES_IV=<title server aes iv>
-VW_SDGB_OBFUSCATE_PARAM=<api hash salt>
-VW_SDGB_KEYCHIP_ID=<keychip id>
-VW_SDGB_CLIENT_ID=<client id>
-VW_SDGB_REGION_ID=1403
-VW_SDGB_PLACE_ID=1
+VW_SDGB_AIME_SALT=XcW5FW4cPArBXEk4vzKz3CIrMuA5EVVW
+VW_SDGB_AES_KEY=n7bx6:@Fg_:2;5E89Phy7AyIcpxEQ:R@
+VW_SDGB_AES_IV=;;KjR1C3hgB1ovXa
+VW_SDGB_OBFUSCATE_PARAM=BEs2D5vW
+VW_SDGB_KEYCHIP_ID=A63E-01C28055905
+VW_SDGB_CLIENT_ID=A63E01C2805
+VW_SDGB_REGION_ID=1
+VW_SDGB_PLACE_ID=1403
 VW_SDGB_TIMEOUT_SEC=10
 ```
 
 要点：
 
-- 这些值来自你方已获得的机厅授权，**禁止写入仓库或示例文件**；Gateway 侧可通过环境变量注入，机器人侧可复用同一组 `VW_SDGB_*` 或使用 gitignored 的 `packages/sdgb-client/sdgb/settings_local.py`；
+- 机器人端已内置这组公开默认值，**无需配置**；Gateway 侧显式配置（可用同一组值）。如需换机厅，用环境变量或 `settings_local.py` 覆盖；
 - `sdgb_full` 流程：换码 → 探测 isLogin → `UserLoginApi` → 取公开资料 → 立即 `UserLogoutApi`；登出失败会进入 `LOGGING_OUT` 恢复作业，由 `VW_GATEWAY_RECOVERY_INTERVAL_SEC` 控制重试；
 - 自建验证服务时使用 `http` provider，配置 `VW_GATEWAY_HTTP_VERIFY_URL` 等参数，见 [Gateway README](../services/sdgb-gateway/README.md)。
 

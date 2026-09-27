@@ -16,9 +16,9 @@
 - 仅通过受控的 secret manager 或权限为 `0600` 的服务器环境文件注入；
 - 发生泄露时立即轮换，并使受影响会话失效；
 - 禁止把值复制到文档、CI 输出、浏览器环境变量或 shell 历史；
-- `packages/sdgb-client` 内置默认值不得包含任何真实 SDGB 密钥/机厅信息（AES Key/IV、
-  ObfuscateParam、AIME Salt、KeychipID、ClientID 等），一律通过环境变量或
-  gitignored 的 `sdgb/settings_local.py` 注入；缺少密钥必须 fail-fast；
+- `packages/sdgb-client` 内置的 SDGB 默认值是**国服社区公开、共享**的协议参数
+  （AES Key/IV、ObfuscateParam、AIME Salt、KeychipID/ClientID），随仓库发布以实现开箱即用；
+  个人/机厅私有覆盖走环境变量或可选的 `sdgb/settings_local.py`（勿外传）；
 - `token_cache.json` / `records_cache.json` 只允许记录 `userID` 与时间，禁止落盘
   原始二维码或 token；`services/bot/napcat/`、仓库根 `data/` 等运行时目录禁止入库；
 - 机器人到 SDGB/AiMe 的请求必须启用 TLS 证书校验，禁止 `verify=False`

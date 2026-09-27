@@ -1,6 +1,6 @@
 # 白名单式 .dockerignore：构建上下文只包含 QQ 机器人运行所需文件，
-# 防止本地密钥/运行数据（settings_local.py、.env*、napcat/、data/、数据库、node_modules 等）被打进镜像。
-# 镜像只接受环境变量注入密钥；不要放宽此文件。
+# 防止本地私有覆盖/运行数据（settings_local.py、.env*、napcat/、data/、数据库、node_modules 等）被打进镜像。
+# SDGB 公开默认参数已内置在 settings.py（开箱即用）；换机厅用 VW_SDGB_* 环境变量覆盖。不要放宽此文件。
 
 # 默认排除一切
 *

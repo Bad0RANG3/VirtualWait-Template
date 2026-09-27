@@ -1,6 +1,8 @@
 # VirtualWait QQ 机器人（NapCat + NoneBot2）docker-compose。
+# 开箱即用：内置公开的国服 SDGB 默认参数，唯一手动步骤是扫码登录机器人 QQ。
 # 用法：cd infra/docker && docker compose -f docker-compose.bot.yml up -d --build
-# Web（apps/web）需另行部署，并在 .env 配置 BOT_API_TOKEN 与这里一致。
+# 使用已发布镜像（非本地源码）时：docker compose -f docker-compose.bot.yml up -d --no-build
+# Web（apps/web）需另行部署；若要启用队列叫号，再在 infra/docker/.env 里配 BOT_API_TOKEN。
 services:
   napcat:
     image: mlikiowa/napcat-docker:latest
@@ -42,17 +44,18 @@ services:
       QUEUE_NOTIFY_BOT_TOKEN: "${QUEUE_NOTIFY_BOT_TOKEN:-}"
       QUEUE_NOTIFY_DEFAULT_GROUP: "${QUEUE_NOTIFY_DEFAULT_GROUP:-}"
       QUEUE_NOTIFY_ROUTING: "${QUEUE_NOTIFY_ROUTING:-{}}"
-      # SDGB 配置：仅环境变量方式（与 Gateway 相同）。预构建镜像内不含 settings_local.py，密钥禁止打进镜像
-      VW_SDGB_AIME_URL: "${VW_SDGB_AIME_URL:-}"
-      VW_SDGB_TITLE_SERVER_URL: "${VW_SDGB_TITLE_SERVER_URL:-}"
-      VW_SDGB_AIME_SALT: "${VW_SDGB_AIME_SALT:-}"
-      VW_SDGB_AES_KEY: "${VW_SDGB_AES_KEY:-}"
-      VW_SDGB_AES_IV: "${VW_SDGB_AES_IV:-}"
-      VW_SDGB_OBFUSCATE_PARAM: "${VW_SDGB_OBFUSCATE_PARAM:-}"
-      VW_SDGB_KEYCHIP_ID: "${VW_SDGB_KEYCHIP_ID:-}"
-      VW_SDGB_CLIENT_ID: "${VW_SDGB_CLIENT_ID:-}"
-      VW_SDGB_REGION_ID: "${VW_SDGB_REGION_ID:-1403}"
-      VW_SDGB_PLACE_ID: "${VW_SDGB_PLACE_ID:-1}"
+      # SDGB 配置：镜像已内置公开的国服协议默认值（见 packages/sdgb-client/sdgb/settings.py），
+      # 无需任何配置即可用；下面仅为可覆盖项（换机厅/换版本时再改）。
+      VW_SDGB_AIME_URL: "${VW_SDGB_AIME_URL:-http://ai.sys-allnet.cn/wc_aime/api/get_data}"
+      VW_SDGB_TITLE_SERVER_URL: "${VW_SDGB_TITLE_SERVER_URL:-https://maimai-gm.wahlap.com:42081/Maimai2Servlet}"
+      VW_SDGB_AIME_SALT: "${VW_SDGB_AIME_SALT:-XcW5FW4cPArBXEk4vzKz3CIrMuA5EVVW}"
+      VW_SDGB_AES_KEY: "${VW_SDGB_AES_KEY:-n7bx6:@Fg_:2;5E89Phy7AyIcpxEQ:R@}"
+      VW_SDGB_AES_IV: "${VW_SDGB_AES_IV:-;;KjR1C3hgB1ovXa}"
+      VW_SDGB_OBFUSCATE_PARAM: "${VW_SDGB_OBFUSCATE_PARAM:-BEs2D5vW}"
+      VW_SDGB_KEYCHIP_ID: "${VW_SDGB_KEYCHIP_ID:-A63E-01C28055905}"
+      VW_SDGB_CLIENT_ID: "${VW_SDGB_CLIENT_ID:-A63E01C2805}"
+      VW_SDGB_REGION_ID: "${VW_SDGB_REGION_ID:-1}"
+      VW_SDGB_PLACE_ID: "${VW_SDGB_PLACE_ID:-1403}"
     # 无入站端口：机器人出站连接 NapCat WebSocket。
     volumes:
       - b50_data:/data

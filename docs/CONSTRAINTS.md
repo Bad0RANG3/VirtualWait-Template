@@ -8,7 +8,7 @@
 
 | 文件 / 路径 | 内容 | 约束 |
 |---|---|---|
-| `packages/sdgb-client/sdgb/settings_local.py` | SDGB 真实密钥：AES Key/IV、AIME Salt、KeychipID、ClientID | 禁止提交；缺失配置必须 fail-fast |
+| `packages/sdgb-client/sdgb/settings_local.py` | 可选的 SDGB 机厅/版本覆盖（默认已内置公开参数） | 若使用，禁止提交 |
 | `services/sdgb-gateway/.env.local` | Gateway 真实密钥与 provider 配置 | 禁止提交 |
 | `services/bot/.env` | 机器人配置（含 QQ 账号） | 禁止提交 |
 | `apps/web/.env.local` | Web 真实密钥 | 禁止提交 |
@@ -39,12 +39,12 @@
 - 只有反向代理已清除并重写客户端转发 IP 头时，才设置 `TRUST_PROXY_HEADERS=true`；
 - 公开队列接口**永不返回 QQ**；Bot API 视为管理面，仅在受控网络路径使用；
 - 队列规则固定：队头确认超时 → 整组自动排到队尾；游玩结束 / 游玩超时 → 自动回队尾；玩家可随时取消离开；
-- 预构建机器人镜像**不包含任何密钥或运行数据**（`settings_local.py`、`.env`、`napcat/`、QQ 登录态均不会打进镜像），密钥只通过 `VW_SDGB_*` 环境变量注入；根目录 `.dockerignore` 为白名单式，**不得放宽**；
+- 预构建机器人镜像**内置国服公开的 SDGB 默认参数**（`settings.py`），不包含个人/机厅私有覆盖或运行数据（`settings_local.py`、`.env`、`napcat/`、QQ 登录态均不会打进镜像）；换机厅用 `VW_SDGB_*` 覆盖；根目录 `.dockerignore` 为白名单式，**不得放宽**；
 - 原始二维码、token、明文 userID 与完整上游响应**不入库**；登出恢复上下文用 `PUBLIC_ID_HMAC_SECRET` 派生密钥 AES-GCM 加密后持久化。
 
 ## 四、高风险命令纪律（B50 / 发票）
 
-- `/b50` 与全部写命令（`/fp` `/giveitem` `/score` `/map` `/chara`）每次使用**新二维码**，
+- `/b50` 与全部写命令（`/fp` `/giveitem` `/score`）每次使用**新二维码**，
   登录成功即消耗该码，流程走完**必须登出**；
 - 同账号 10 分钟内重复查询走本地缓存，不重复登录；
 - 中断可能触发小黑屋（`isLogin=1`，约 15 分钟冷却），期间不得反复登录；

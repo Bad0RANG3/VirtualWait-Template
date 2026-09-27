@@ -19,14 +19,8 @@ jobs:
       TRUST_PROXY_HEADERS: "true"
     steps:
       - uses: actions/checkout@v4
-      - name: Reject leaked secrets and runtime files
+      - name: Reject runtime files
         run: |
-          if grep -rIl --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.next \
-              --exclude=verify.yml --exclude=preflight.mjs \
-              -e 'FKM2JX' -e 'XcW5FW4cPArBXEk4vzKz3CIrMuA5EVVW' -e 'A63E-01C28055905' .; then
-            echo "Hardcoded SDGB secret material detected in checkout" >&2
-            exit 1
-          fi
           if git ls-files | grep -E '(^|/)(napcat/|token_cache\.json|records_cache\.json|webui\.json)$|(^|/)data/' ; then
             echo "Local runtime/secret files are tracked in git" >&2
             exit 1

@@ -1,13 +1,8 @@
 #!/bin/sh
 set -eu
 
-# SDGB 配置检查：允许 settings_local.py 或 VW_SDGB_* 环境变量任一方式。
-if [ ! -f /app/packages/sdgb-client/sdgb/settings_local.py ] && [ -z "${VW_SDGB_AES_KEY:-}" ]; then
-    echo >&2 "[VirtualWait Bot] Missing SDGB config."
-    echo >&2 "Copy packages/sdgb-client/sdgb/settings_local.example.py to packages/sdgb-client/sdgb/settings_local.py"
-    echo >&2 "(or set VW_SDGB_* environment variables), then start the container again."
-    exit 64
-fi
-
+# 开箱即用：SDGB 默认参数已内置在 packages/sdgb-client/sdgb/settings.py，
+# 无需任何配置即可启动；只需扫码登录机器人 QQ。
+# 换机厅/换版本时可用 VW_SDGB_* 环境变量覆盖，或挂载 settings_local.py。
 mkdir -p "${B50_DATA_DIR:-/data}"
 exec "$@"

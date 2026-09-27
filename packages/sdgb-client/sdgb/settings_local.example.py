@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-# This file is the template for sdgb/settings.py.
-# Usage: copy this file to sdgb/settings.py (gitignored) and fill in your own values.
-# DO NOT share your env to others.
+# Optional local override for sdgb/settings.py.
+# 默认参数已内置在 settings.py（国服公开参数），一般无需本文件；
+# 仅在换机厅 / 换版本时，复制本文件为 sdgb/settings_local.py 并覆盖对应字段。
+# DO NOT share personal overrides to others.
 
 # ============================================================
 # 服务器 / 加密配置（1.55 -> 1.56）

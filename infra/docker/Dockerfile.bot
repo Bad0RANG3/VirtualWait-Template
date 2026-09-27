@@ -1,8 +1,10 @@
 # VirtualWait QQ 机器人镜像（可复用）。
 #
 # 设计约束：
-# - 只复制 services/bot、packages/sdgb-client 与入口脚本，**不复制**任何本地密钥
-#   （settings_local.py / .env* / napcat/ / data/ 等），密钥一律通过 VW_SDGB_* 环境变量注入；
+# - 只复制 services/bot、packages/sdgb-client 与入口脚本，**不复制**个人/机厅私有覆盖
+#   （settings_local.py / .env* / napcat/ / data/ 等）；
+# - SDGB 公开默认参数已内置在 packages/sdgb-client/sdgb/settings.py，开箱即用；
+#   换机厅时用 VW_SDGB_* 环境变量覆盖。
 # - 与 docker-compose.bot.yml 配套：拉起后唯一手动步骤是扫码登录机器人 QQ。
 #
 # 构建（可选，通常直接用预构建镜像）：

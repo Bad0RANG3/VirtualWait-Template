@@ -18,7 +18,7 @@ VirtualWait 是一套面向 maimai DX 机台的 **虚拟排卡（线上排队）
 - **自动回队尾**：游玩结束、游玩超时、队头确认超时都会回队尾，可随时取消离开；管理员可强制开始 / 重排 / 取消 / 结束；
 - **二维码身份登录**：原始二维码、token、明文 userID 与完整上游响应不入库；`sdgb_full` 真实登录验证后**立即登出**；
 - **登出失败恢复**：AES-GCM 加密上下文 + `LOGGING_OUT` 后台恢复作业，保证“必登出”；
-- **QQ 叫号机器人**（NoneBot2 + NapCat）：机台空闲 @ 队首、`/b50` 成绩图，以及发票 / 写道具 / 传分 / 跑区域 / 写伙伴等写命令；
+- **QQ 叫号机器人**（NoneBot2 + NapCat）：机台空闲 @ 队首、`/b50` 成绩图，以及发票 / 写道具 / 传分等写命令；
 - **管理台**：场地 / 机台 / 超时 / 硬币 / 队列状态 / 审计；
 - **运维全家桶**：SQLite、Nginx、systemd、备份、健康检查、维护任务；
 - **配置化**：所有密钥、队列规则、超时、保留期、身份 provider 均由环境变量或 gitignored 配置文件驱动；
@@ -134,7 +134,7 @@ NapCat + NoneBot2 一起拉起，OneBot v11 正向 WebSocket 已预置，唯一�
 | Web 密钥 | `apps/web/.env.local` 或 `/etc/virtualwait/web.env` | `SESSION_SECRET`、`ADMIN_API_TOKEN` 独立随机；`GATEWAY_SHARED_SECRET`、`PUBLIC_ID_HMAC_SECRET`、`GATEWAY_KEY_ID` 与 Gateway 一致 |
 | Gateway | `services/sdgb-gateway/.env.local` 或 `/etc/virtualwait/gateway.env` | `VW_GATEWAY_HOST=127.0.0.1`；生产 provider 用 `http` / `sdgb_preview` / `sdgb_full`，不用 `mock` |
 | Bot | `services/bot/.env` 或 compose 环境变量 | `ONEBOT_WS_URLS`、`QUEUE_NOTIFY_BASE_URL`、`QUEUE_NOTIFY_BOT_TOKEN`（= Web 的 `BOT_API_TOKEN`） |
-| SDGB 密钥 | `VW_SDGB_*` 环境变量或 gitignored `packages/sdgb-client/sdgb/settings_local.py` | AES Key/IV、AIME Salt、KeychipID 等；禁止提交 |
+| SDGB 参数 | `packages/sdgb-client/sdgb/settings.py` 内置公开默认值；`VW_SDGB_*` 或 `settings_local.py` 可覆盖 | 机器人已内置国服公开参数，开箱即用；换机厅时才改 |
 | 队列规则 | Web env → 管理台 | `HEAD_CONFIRM_TIMEOUT_SEC`（默认 180）、`PLAYING_TIMEOUT_SEC`（默认 1500），管理台可运行时覆盖 |
 | 数据保留 | Web env | `IP_BINDING_RETENTION_DAYS`、`PROFILE_DATA_RETENTION_DAYS`、`QUEUE_HISTORY_RETENTION_DAYS`、`AUDIT_EVENT_RETENTION_DAYS` |
 
@@ -149,20 +149,20 @@ Web **始终**使用签名远程 Gateway（`GATEWAY_MODE=remote`）。Gateway �
 | `sdgb_preview` | 无登录预览（AiMe 换码 + `GetUserPreviewApi`，不登录） |
 | `sdgb_full` | **真实登录验证**：换码 → 探测 isLogin → `UserLoginApi` → 取公开资料 → 立即 `UserLogoutApi`；登出失败走 `LOGGING_OUT` 恢复作业 |
 
-`sdgb_full` 配置（`services/sdgb-gateway/.env.local`）：
+`sdgb_full` 配置（`services/sdgb-gateway/.env.local`；机器人端已内置同一组公开默认值，无需填写）：
 
 ```env
 VW_GATEWAY_PROVIDER=sdgb_full
 VW_SDGB_AIME_URL=http://ai.sys-allnet.cn/wc_aime/api/get_data
 VW_SDGB_TITLE_SERVER_URL=https://maimai-gm.wahlap.com:42081/Maimai2Servlet
-VW_SDGB_AIME_SALT=<aime salt>
-VW_SDGB_AES_KEY=<title server aes key>
-VW_SDGB_AES_IV=<title server aes iv>
-VW_SDGB_OBFUSCATE_PARAM=<api hash salt>
-VW_SDGB_KEYCHIP_ID=<keychip id>
-VW_SDGB_CLIENT_ID=<client id>
-VW_SDGB_REGION_ID=1403
-VW_SDGB_PLACE_ID=1
+VW_SDGB_AIME_SALT=XcW5FW4cPArBXEk4vzKz3CIrMuA5EVVW
+VW_SDGB_AES_KEY=n7bx6:@Fg_:2;5E89Phy7AyIcpxEQ:R@
+VW_SDGB_AES_IV=;;KjR1C3hgB1ovXa
+VW_SDGB_OBFUSCATE_PARAM=BEs2D5vW
+VW_SDGB_KEYCHIP_ID=A63E-01C28055905
+VW_SDGB_CLIENT_ID=A63E01C2805
+VW_SDGB_REGION_ID=1
+VW_SDGB_PLACE_ID=1403
 VW_SDGB_TIMEOUT_SEC=10
 ```
 
@@ -177,8 +177,6 @@ VW_SDGB_TIMEOUT_SEC=10
 | `/fp <二维码> [2~5]` | 发票（写操作，真实改账号数据；库存为 0 才下发，免费固定 1 张） |
 | `/giveitem <二维码> KIND:ID [...]` | 写道具 / 收藏品（写操作，一次最多 10 条） |
 | `/score <二维码> MUSIC:LEVEL:ACH [...]` | 传分（写操作，一次最多 5 个谱面） |
-| `/map <二维码> 区域ID\|区域名 [...]` | 跑区域（写操作；实机已证假局不记距离，只用于量服务器幅度） |
-| `/chara <二维码> 角色ID\|first [...]` | 写旅行伙伴槽位（写操作；给 1 个 ID 占满 5 槽） |
 | `/vw_queue_status` | 队列通知插件轮询状态 |
 
 > 写命令是高风险操作：每次使用新二维码（登录一次即消耗该码）、流程走完必登出、

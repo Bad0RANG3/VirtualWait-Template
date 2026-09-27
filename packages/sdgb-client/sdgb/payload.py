@@ -160,7 +160,7 @@ def build_character_entry(character: dict) -> dict:
 
 
 # ---------------------------------------------------------------
-# userItemList / userMapList 行
+# userItemList 行
 # ---------------------------------------------------------------
 
 def build_item_entry(item_kind: int, item_id: int, stock: int = 1, is_valid: bool = True) -> dict:
@@ -191,35 +191,6 @@ def merge_user_items(*lists) -> list:
 def build_is_new_item_list(items) -> str:
     """按 userItemList 行数生成 isNewItemList（一行一个 "1"；0 行时为 ""）。"""
     return "1" * len(items or [])
-
-
-def build_map_entry(
-    map_id: int,
-    distance: int,
-    *,
-    is_lock: bool = False,
-    is_clear: bool = False,
-    is_complete: bool = True,
-    unlock_flag: int = 0,
-) -> dict:
-    """构造一条 userMapList 行（字段与 GetUserMapApi 返回同形）。"""
-    return {
-        "mapId": int(map_id),
-        "distance": int(distance),
-        "isLock": bool(is_lock),
-        "isClear": bool(is_clear),
-        "isComplete": bool(is_complete),
-        "unlockFlag": int(unlock_flag),
-    }
-
-
-def build_is_new_map_list(maps, flag: str = "0") -> str:
-    """按 userMapList 行数生成 isNewMapList（一行一个标志位；0 行时为 ""）。
-
-    实测机台报文："0" = 更新已存在的区域（跑图时 distance 增长就这么写），
-    "1" = 新增区域行。只标记完成用 "0"，服务器不走新区域的奖励发放。
-    """
-    return flag * len(maps or [])
 
 
 #: 音符数 -> DX 分上限（机台刻度：满 Critical Perfect 每颗音符 3 分）。
@@ -417,13 +388,10 @@ def UserAll_payload(
     *,
     chara_slot: list = None,
     chara_lock_slot: list = None,
-    user_map_list: list = None,
     user_item_list: list = None,
-    user_character_list: list = None,
     user_music_detail_list: list = None,
     is_new_music_detail_list: str = None,
     is_new_item_list: str = None,
-    is_new_map_flag: str = "0",
 ):
     """构建 UpsertUserAllApi 整包。
 
@@ -433,8 +401,7 @@ def UserAll_payload(
     `charaLockSlot` 只在它的 userData 里返回，缺了这一项就得靠默认值，
     会把账号正在用的 5 个旅行伙伴写成 [1,1,1,1,1]。
 
-    关键字参数用于「本次要改什么」：不传即原样回传快照（userMapList/userItemList/
-    userCharacterList 保持空 = 不动这些表）。
+    关键字参数用于「本次要改什么」：不传即原样回传快照（userItemList 保持空 = 不动这些表）。
     user_music_detail_list 给定时整替换 userMusicDetailList（传分），
     并把 is_new_music_detail_list="1" 告诉服务器这是新成绩；不传时仍是单条 musicData。
     """
@@ -502,8 +469,6 @@ def UserAll_payload(
     TimeStamp = timestamp if timestamp is not None else now_timestamp()
 
     items = list(user_item_list or [])
-    maps = list(user_map_list or [])
-    characters = list(user_character_list or [])
     music_details = (
         list(user_music_detail_list) if user_music_detail_list is not None
         else [musicData]
@@ -611,9 +576,9 @@ def UserAll_payload(
             ],
             "userExtend": [ext],
             "userOption": [opt],
-            "userCharacterList": characters,
+            "userCharacterList": [],
             "userGhost": [],
-            "userMapList": maps,
+            "userMapList": [],
             "userLoginBonusList": [],
             "userRatingList": [rating],
             "userItemList": items,
@@ -668,8 +633,8 @@ def UserAll_payload(
             "userTradeItemList": [],
             "userFavoritemusicList": [],
             "userKaleidxScopeList": [],
-            "isNewCharacterList": build_is_new_map_list(characters),
-            "isNewMapList": build_is_new_map_list(maps, is_new_map_flag),
+            "isNewCharacterList": "",
+            "isNewMapList": "",
             "isNewLoginBonusList": "",
             "isNewItemList": new_item_list,
             "isNewMusicDetailList": new_music_detail_list,
@@ -875,7 +840,7 @@ def build_new_item_list_data(
     实测机台包每次游玩结束都是
     `GetUserNewItemListApi(userId, version, userData, userPlaylogList)`
     先结算本局，约 30 秒后同样的 playlog 再随 UpsertUserAllApi 落库。
-    成绩/道具/区域都是在这一步被服务器采纳的，响应 userItemList 即本局掉的收藏品。
+    成绩/道具都是在这一步被服务器采纳的，响应 userItemList 即本局掉的收藏品。
     user_data 直接复用 UpsertUserAllApi 的 userData 行（同一个对象）。
     """
     return {

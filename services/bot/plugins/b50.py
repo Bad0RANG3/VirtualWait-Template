@@ -7,8 +7,6 @@
     /fp <二维码> <数字>  发票：数字=发几倍票（2~5），该票库存为 0 才下发，免费，固定 1 张
     /giveitem ...      写道具 / 收藏品
     /score ...         传分（写成绩）
-    /map ...           跑区域：分档把距离推到终点，不发收藏品
-    /chara ...         写旅行伙伴槽位（1 个 ID = 占满 5 槽）
 
 凭证纪律:
     - 每条命令都要 maimai 机台登录界面的新二维码：换 token -> 登录 -> 操作 -> 登出。
@@ -71,31 +69,17 @@ score_cmd = on_command(
     "score", aliases={"传分", "传成绩", "transfer"},
     rule=to_me(), priority=5, block=True,
 )
-map_cmd = on_command(
-    "map", aliases={"跑区域", "区域", "跑图", "完成区域", "markmap"},
-    rule=to_me(), priority=5, block=True,
-)
-chara_cmd = on_command(
-    "chara", aliases={"写伙伴", "旅行伙伴", "角色槽位", "伙伴"},
-    rule=to_me(), priority=5, block=True,
-)
-
 # 单次写入道具数量上限（防止误操作一次性写入过多）
 MAX_GIVE_ITEMS = 10
 
 # 单次传分谱面数上限
 MAX_TRANSFER_SCORES = 5
 
-# 单次标记区域数上限
-MAX_COMPLETE_MAPS = 10
-
 HELP_TEXT = """📋 功能列表
 /b50 <二维码>  查询完整 B50 成绩图
 /fp <二维码> 数字  开发票（数字=几倍票，2~5）
 /giveitem <二维码> KIND:ID [KIND:ID ...]  写道具/收藏品（真实写操作）
 /score <二维码> MUSICID:LEVEL:ACH[:COMBO[:SYNC]]  传分（写成绩，真实写操作）
-/map <二维码> 区域ID|区域名 [[:目标距离] ...]  跑区域：试探距离能否推进，不发收藏品（真实写操作）
-/chara <二维码> 角色ID|first [角色ID ×5]  写旅行伙伴槽位：给 1 个 ID 就占满 5 槽（真实写操作）
 
 itemKind：1姓名框 2称号 3头像 4礼物 5歌曲 6Master 7Re:Master
           8宴谱 9角色 10搭档 11背景板 12功能票
@@ -103,15 +87,6 @@ itemKind：1姓名框 2称号 3头像 4礼物 5歌曲 6Master 7Re:Master
 
 传分 ACH 可写 1010000 / 101.0000 / 100.5%；COMBO=0无1FC2FC+3AP4AP+，SYNC=0~5
 例：/score <二维码> 417:3:101.0000:4:4
-
-区域可用 ID 或名字（如 200001 / 龙之区域4）。⚠️ 实机结论：区域距离由服务器按真游玩记账，
-重放的假局记 0 —— 跑区域推不动距离，/map 只能用来量服务器允许的幅度
-例：/map <二维码> 200001 龙之区域4:1200000
-
-旅行伙伴 ID 取自 GetUserCharacterApi：写 1 个 = 让它占满 5 个槽位，写 5 个 = 按槽序，
-写 first = 拿账号当前第一个槽位的伙伴占满 5 槽（登录后才读得到现值）。
-例：/chara <二维码> 302
-例：/chara <二维码> first
 
 ⚠️ 写命令每次都换新码；登录成功后这个码就作废，流程中断会进约 15 分钟小黑屋"""
 
@@ -296,86 +271,3 @@ async def handle_score(bot: Bot, event: MessageEvent):
     except Exception:  # noqa: BLE001
         await score_cmd.finish(_fail_text(user_id))
 
-
-@map_cmd.handle()
-async def handle_map(bot: Bot, event: MessageEvent):
-    """/map <二维码> 区域ID|区域名[:目标距离] [...]：分档试探区域距离能否推进（真实写操作）。"""
-    parts = str(event.get_plaintext()).strip().split()
-    qr = parts[1] if len(parts) > 1 else ""
-    specs = parts[2:]
-    if len(qr) < 20 or not specs:
-        await map_cmd.finish(
-            "格式：/map <二维码字符串> 区域ID|区域名 [[:目标距离] ...]\n"
-            "例：/map SGWCMAID... 200001 龙之区域4\n"
-            "（按档试推区域距离，只回写进度、不发放收藏品奖励。"
-            "⚠️ 实机已证：距离由服务器按真游玩记账（单局 11000~13000），"
-            "重放的假局记 0，所以推不动 —— 本命令用来量服务器允许的幅度，"
-            "不承诺能把区域跑到终点）"
-        )
-        return
-    if len(specs) > MAX_COMPLETE_MAPS:
-        await map_cmd.finish(f"一次最多跑 {MAX_COMPLETE_MAPS} 个区域（本次 {len(specs)} 个）。")
-        return
-    from sdgb.write_ops import complete_maps_with_qr, parse_map_specs
-
-    try:
-        parse_map_specs(specs)  # 先校验格式，避免登录后才报错
-    except ValueError as e:
-        await map_cmd.finish(f"❌ 格式错误：{e}")
-        return
-
-    user_id = event.get_user_id()
-    try:
-        await map_cmd.send(
-            "📋 开始跑区域…（⚠️ 真实写操作，分档推进距离、不发收藏品，"
-            "每档约 1 分钟，最多 4 档）"
-        )
-        msg = await complete_maps_with_qr(qr, specs, music_db=DB)
-        _fail_counts.pop(user_id, None)
-        await map_cmd.finish(msg)
-    except FinishedException:
-        raise
-    except Exception:  # noqa: BLE001
-        await map_cmd.finish(_fail_text(user_id))
-
-
-@chara_cmd.handle()
-async def handle_chara(bot: Bot, event: MessageEvent):
-    """/chara <二维码> 角色ID [...]：把旅行伙伴写进 5 个角色槽位（真实写操作）。"""
-    parts = str(event.get_plaintext()).strip().split()
-    qr = parts[1] if len(parts) > 1 else ""
-    specs = parts[2:]
-    if len(qr) < 20 or not specs:
-        await chara_cmd.finish(
-            "格式：/chara <二维码字符串> 角色ID [角色ID ...]\n"
-            "例：/chara SGWCMAID... 302（让 302 占满 5 个槽位）\n"
-            "例：/chara SGWCMAID... 300103 350103 302 350706 150104（按槽序写 5 个）\n"
-            "例：/chara SGWCMAID... first（用当前第一个伙伴占满 5 个槽位）\n"
-            "（⚠️ 真实写操作，只改旅行伙伴槽位，约 2 分钟；"
-            "机台报文里 5 个槽位从不重复，同一伙伴占满 5 槽能否生效由服务器说了算）"
-        )
-        return
-    from sdgb.write_ops import (
-        is_current_first, parse_chara_ids, set_chara_slots_with_qr,
-    )
-
-    #: 先校验格式，避免登录后才报错；别名（first）要登录后才知现值
-    if is_current_first(specs):
-        label = "当前第一个伙伴 ×5"
-    else:
-        try:
-            label = str(parse_chara_ids(specs))
-        except ValueError as e:
-            await chara_cmd.finish(f"❌ 格式错误：{e}")
-            return
-
-    user_id = event.get_user_id()
-    try:
-        await chara_cmd.send(f"📋 开始写旅行伙伴槽位 {label}…（⚠️ 真实写操作）")
-        msg = await set_chara_slots_with_qr(qr, specs, music_db=DB)
-        _fail_counts.pop(user_id, None)
-        await chara_cmd.finish(msg)
-    except FinishedException:
-        raise
-    except Exception:  # noqa: BLE001
-        await chara_cmd.finish(_fail_text(user_id))

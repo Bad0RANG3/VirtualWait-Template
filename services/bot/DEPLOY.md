@@ -36,11 +36,11 @@ B50 Bot 由两部分组成：
 ```bat
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
-copy ..\..\packages\sdgb-client\sdgb\settings_local.example.py ..\..\packages\sdgb-client\sdgb\settings_local.py
 ```
 
-编辑 `..\..\packages\sdgb-client\sdgb\settings_local.py`，填写机厅信息：`clientId` / `regionId` / `regionName` /
-`placeId` / `placeName` / `KeychipID` / `aimeSalt`。
+**无需填写任何配置**：SDGB 的国服公开参数（AES/AIME/机厅）已内置在
+`packages/sdgb-client/sdgb/settings.py`。仅当要换机厅或换版本时，才复制
+`settings_local.example.py` 为 `settings_local.py` 覆盖对应字段，或改用 `VW_SDGB_*` 环境变量。
 
 ### 3. 启动
 
@@ -74,10 +74,9 @@ copy ..\..\packages\sdgb-client\sdgb\settings_local.example.py ..\..\packages\sd
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-cp ../../packages/sdgb-client/sdgb/settings_local.example.py ../../packages/sdgb-client/sdgb/settings_local.py
 ```
 
-编辑 `../../packages/sdgb-client/sdgb/settings_local.py`，填写机厅信息（字段同 Windows）。
+**无需填写任何配置**：默认参数已内置（字段说明同 Windows）。
 
 ### 3. 启动
 
@@ -100,49 +99,39 @@ python bot.py
 
 仓库提供 `infra/docker/docker-compose.bot.yml`，同时拉起 NapCat（OneBot 协议端）与 VirtualWait 机器人（NoneBot2）。**WebSocket 已预置好**：compose 给 NapCat 设了 `MODE=ws`，官方镜像会自动启用 OneBot v11 正向 WebSocket 服务端（`0.0.0.0:3001`）；登录 QQ 后 B50 机器人即通过 `ws://napcat:3001` 连上。整个链路**唯一手动步骤就是扫码登录 QQ**。
 
-机器人镜像为**预构建、可复用**：镜像内不包含任何密钥或运行数据（`settings_local.py`、`.env`、`napcat/`、QQ 登录态均不会打进镜像），SDGB 机厅密钥一律通过环境变量注入。
+机器人镜像为**预构建、可复用**：镜像内置国服公开的 SDGB 默认参数（`settings.py`），不包含个人/机厅私有覆盖或运行数据（`settings_local.py`、`.env`、`napcat/`、QQ 登录态均不会打进镜像）；如需换机厅，用 `VW_SDGB_*` 环境变量覆盖即可。
 
-### 3.1 使用预构建镜像（推荐，免构建）
+### 3.1 一键启动（推荐，从源码构建）
 
-**在线（Docker Hub）**：机器人镜像已发布到 `bad0rang3/maidxtool`，直接拉取即可：
+**无需任何配置**，一条命令即可拉起 NapCat + 机器人（镜像内置公开的 SDGB 默认参数）：
 
 ```bash
-docker pull bad0rang3/maidxtool:latest
-# NapCat 会自动从官方仓库拉取；内网/离线时改用下面的离线包
+docker compose -f infra/docker/docker-compose.bot.yml up -d --build
 ```
 
-**离线 / 内网**：仓库 `dist/` 目录（gitignored）提供已打包产物，`SHA256SUMS.txt` 可校验完整性：
+> 国内网络可用 `--build-arg` 加速 pip；见 `infra/docker/Dockerfile.bot` 头部注释。
 
-| 产物 | 内容 | 体积 |
-|---|---|---|
-| `dist/virtualwait-bot.1.0.0.tar.gz` | 仅机器人镜像 | ~54 MB |
-| `dist/virtualwait-qqbot-stack.1.0.0.tar.gz` | 机器人 + NapCat 全栈（离线/内网推荐） | ~620 MB |
+若使用已打好的离线/预构建镜像（需为含内置默认参数的新版本），改用：
 
 ```bash
 docker load -i dist/virtualwait-qqbot-stack.1.0.0.tar.gz
-# 仅机器人镜像时还要确保 NapCat 可达：docker pull mlikiowa/napcat-docker:latest
+docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
 ```
 
-2. 在 `infra/docker/` 下准备 `.env`，注入机厅密钥与叫号配置（**不要**改 `settings_local.py`，镜像里没有它）：
+2. **无需任何配置**：镜像已内置公开的 SDGB 默认参数，直接进入下一步。仅当需要覆盖机厅信息或启用队列叫号时，才在 `infra/docker/` 下新建可选 `.env`（示例）：
 
 ```bash
 cd infra/docker
 cat > .env <<'EOF'
-# 与 Web 的 BOT_API_TOKEN 一致（队列叫号用；留空则仅 B50/FP 可用）
+# 队列叫号（可选；不配则仅 B50/FP 可用）
 QUEUE_NOTIFY_BASE_URL=http://你的Web地址:3000
 QUEUE_NOTIFY_BOT_TOKEN=<与 Web 的 BOT_API_TOKEN 一致>
 QUEUE_NOTIFY_DEFAULT_GROUP=<通知群号，留空则按场地 groupUmo 路由>
-# SDGB 机厅密钥（与 Gateway 同一组 VW_SDGB_*）
-VW_SDGB_AIME_URL=http://ai.sys-allnet.cn/wc_aime/api/get_data
-VW_SDGB_TITLE_SERVER_URL=https://maimai-gm.wahlap.com:42081/Maimai2Servlet
-VW_SDGB_AIME_SALT=<aime salt>
-VW_SDGB_AES_KEY=<title server aes key>
-VW_SDGB_AES_IV=<title server aes iv>
-VW_SDGB_OBFUSCATE_PARAM=<api hash salt>
-VW_SDGB_KEYCHIP_ID=<keychip id>
-VW_SDGB_CLIENT_ID=<client id>
-VW_SDGB_REGION_ID=1403
-VW_SDGB_PLACE_ID=1
+# 换机厅/换版本时覆盖（可选）
+VW_SDGB_REGION_ID=1
+VW_SDGB_PLACE_ID=1403
+VW_SDGB_CLIENT_ID=A63E01C2805
+VW_SDGB_KEYCHIP_ID=A63E-01C28055905
 EOF
 ```
 
@@ -220,6 +209,6 @@ QQ 登录态、NapCat 配置与 B50 缓存分别保存在命名卷 `napcat_qq`�
 
 ## 安全提示
 
-- `settings_local.py` / `token_cache.json` / `records_cache.json` 含密钥与账号数据，勿提交、勿外传
+- `settings.py` 内置的是公开协议参数；`settings_local.py`（若使用）与 `token_cache.json` / `records_cache.json` 含个人/账号数据，勿外传
 - NapCat 端口（3001/6099/8080）勿暴露公网
 - QQ 小号风控自负；二维码字符串是登录凭证，建议私聊发送
