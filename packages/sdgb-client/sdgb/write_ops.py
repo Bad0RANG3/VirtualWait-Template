@@ -118,6 +118,30 @@ MAP_MAX_ROUNDS = 4
 MAP_STEP_FLOOR = 3000
 
 
+#: WriteResult.status：写请求已被服务器采纳（未回查）
+WRITE_SUBMITTED = "SUBMITTED"
+#: WriteResult.status：verify=True 且回查达到目标成绩
+WRITE_CONFIRMED = "CONFIRMED"
+#: WriteResult.status：verify=True 但回查未达目标（提交成功、结果存疑）
+WRITE_UNCONFIRMED = "UNCONFIRMED"
+
+
+class WriteResult(str):
+    """写流程回执：给人看的中文文案，同时带结构化字段给程序化调用方。
+
+    继承 str 让机器人/CLI 现有的 `print(result)` 和字符串比较保持不变；
+    gateway 这类调用方读 `status` / `written_count`，不用解析 emoji 前缀。
+    """
+
+    __slots__ = ("status", "written_count")
+
+    def __new__(cls, message: str, *, status: str, written_count: int) -> "WriteResult":
+        obj = super().__new__(cls, message)
+        obj.status = status
+        obj.written_count = written_count
+        return obj
+
+
 async def _noop(_msg: str) -> None:
     pass
 
@@ -1320,7 +1344,11 @@ async def transfer_score_with_qr(
             await _settle_then_upsert(client, h, user_id, request_data, playlogs, say=say)
 
             if not verify:
-                return f"✅ 已写入 {len(details)} 条成绩"
+                return WriteResult(
+                    f"✅ 已写入 {len(details)} 条成绩",
+                    status=WRITE_SUBMITTED,
+                    written_count=len(details),
+                )
 
             await say("回查确认…")
             found = await fetch_user_music(client, h, user_id, token)
@@ -1335,11 +1363,19 @@ async def transfer_score_with_qr(
                 f"{idx.get((s['musicId'], s['level']), {}).get('achievement', '无记录')}"
                 for s in lagging[:5]
             ]
-            return (
-                f"⚠️ 写入已提交，但回查未达目标成绩（账号共回查 {len(found)} 条谱面）：\n"
-                + "\n".join(diff)
+            return WriteResult(
+                (
+                    f"⚠️ 写入已提交，但回查未达目标成绩（账号共回查 {len(found)} 条谱面）：\n"
+                    + "\n".join(diff)
+                ),
+                status=WRITE_UNCONFIRMED,
+                written_count=len(details),
             )
-        return f"✅ 已写入并回查确认 {len(details)} 条成绩"
+        return WriteResult(
+            f"✅ 已写入并回查确认 {len(details)} 条成绩",
+            status=WRITE_CONFIRMED,
+            written_count=len(details),
+        )
     finally:
         await _logout_quietly(client, user_id, login_ts, say)
 
