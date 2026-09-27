@@ -51,6 +51,18 @@ _DEFAULTS = {
     "openGameID": "MAID",
     "userId": None,
     "qrCode": "",
+    # 写流程「本局」兜底曲目（settings_local.py 可覆盖）；非机密。
+    "musicData": {
+        "musicId": 417,
+        "level": 3,
+        "playCount": 1,
+        "achievement": 1010000,
+        "comboStatus": 4,
+        "syncStatus": 4,
+        "deluxscoreMax": 2277,
+        "scoreRank": 13,
+        "extNum1": 0,
+    },
 }
 
 _ENV_MAP = {

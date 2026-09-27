@@ -11,7 +11,41 @@ Gateway（`services/sdgb-gateway`）与 QQ 机器人（`services/bot`）共用�
 - `sdgb.py`：异步 `MaimaiClient`（httpx，供 QQ 机器人使用）；
 - `records.py`：B50 成绩查询（GetUserRatingApi / GetUserMusicApi）与 10 分钟本地缓存；
 - `b50.py`：B50 oneshot 渲染（外部渲染服务）；
-- `write_ops.py`：发票写操作（登录 → 上传 → 登出，高风险）。
+- `map_targets.py`：区域（userMapList）终点距离与区域名对照表；
+- `write_ops.py`：写操作（发票 / 写道具 / 传分 / 跑区域 / 写旅行伙伴槽位，高风险）。
+
+## 写操作时序（机台报文实测）
+
+`write_ops` 的非查询流程统一走「先结算、再整包落库」：
+
+```
+换 token -> GetUserPreviewApi（isLogin 小黑屋探测）-> UserLoginApi
+         -> 查询快照 -> 模拟游玩等待(60s)
+         -> GetUserNewItemListApi（带本局 playlog；成绩/道具在这一步被服务器采纳）
+         -> 30s -> UpsertUserAllApi（同一批 playlog + 目标行）
+         -> 回查（verify=True 才做）-> UserLogoutApi（回传登录时刻，finally 必登出）
+```
+
+- `UploadUserPlaylogListApi` 单独上传成绩会被服务器静默忽略，必须走结算包；
+- 结算包用「本局之前」的计数，落库包才累加（`bump_play_totals`）；
+- 非传分流程的「本局」伪造成账号自己已有的 B50 记录（判定按曲库音符数填满），
+  因此写道具/跑区域不会顺手改成绩；
+- 整包写会覆盖 `charaSlot`，所以写前先读回账号现值（`GetGameKaleidxScopeApi`
+  只在「登录后 + 空请求体」时返回 `userData`），避免把五个槽位清成默认值；
+- ⚠️ 实机结论：区域距离由服务器按真游玩记账，重放的假局记 0，`/map` 推不动距离；
+  `跑区域`/`写伙伴` 的生效性以机台回查为准，代码只在服务器确实收下时才报成功。
+
+一次登录即消耗一个二维码（即使后续没发写包），失败必须重新扫码；
+写流程被打断会触发 `isLogin=1`（约 15 分钟冷却）。
+
+## 测试
+
+```bash
+pip install -e './packages/sdgb-client[test]'
+python -m pytest -q packages/sdgb-client/tests
+```
+
+测试用假客户端覆盖写时序、分档阶梯与伙伴槽位的采纳/拒绝分支，不触碰真实服务器。
 
 ## 配置
 

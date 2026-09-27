@@ -83,5 +83,7 @@ jobs:
       - name: Verify QQ bot and shared sdgb-client
         run: |
           python -m pip install pytest
+          python -m pip install -e './packages/sdgb-client[test]'
           python -m compileall -q packages/sdgb-client services/bot
+          PYTHONPATH=packages/sdgb-client pytest -q packages/sdgb-client/tests
           PYTHONPATH=services/bot pytest -q services/bot/tests

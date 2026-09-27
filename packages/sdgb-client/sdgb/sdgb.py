@@ -267,9 +267,12 @@ class MaimaiClient:
         - payload_extra: {apiType: {额外字段}}，用于 GetGameRankingApi 等
           需要额外参数（如 rankingId）的接口；会合并进基础请求体。
         - 分页类接口（见 PAGED_API_TYPES）自动附加 nextIndex/maxCount。
+        - 空体类接口（见 EMPTY_BODY_API_TYPES）请求体固定为 {}：带 userId/token
+          时服务器不返回该接口的完整数据（实测 GetGameKaleidxScopeApi 读不到 charaSlot）。
         - cookie: 登录态查询携带会话 cookie（登录后拉数据建议传入）。
         """
         from .payload import (
+            EMPTY_BODY_API_TYPES,
             PAGED_API_TYPES,
             build_paged_user_data,
             build_user_data,
@@ -288,7 +291,9 @@ class MaimaiClient:
                             client, user_id, token, cookie=cookie
                         )
                     else:
-                        if api_type in PAGED_API_TYPES:
+                        if api_type in EMPTY_BODY_API_TYPES:
+                            data = {}
+                        elif api_type in PAGED_API_TYPES:
                             data = build_paged_user_data(user_id, token)
                         else:
                             data = build_user_data(user_id, token)

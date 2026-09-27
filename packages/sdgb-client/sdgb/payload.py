@@ -111,10 +111,129 @@ def build_paged_user_data(
     return data
 
 
+# ---------------------------------------------------------------
+# 写库时序与旅行伙伴槽位
+# ---------------------------------------------------------------
+
+#: UpsertUserAllApi 落库前必须先「结算」的接口：本局 playlog 随它的请求上报，
+#: 服务器在这一步采纳 achievement；30s 后再走 UpsertUserAllApi 才入档。
+#: 实测走 UploadUserPlaylogListApi 的上报一律静默不生效（2026-09-27 传分实机）。
+SETTLE_API_TYPE = "GetUserNewItemListApi"
+
+#: 旅行伙伴槽位接口：`charaSlot` / `charaLockSlot` 只在它的 userData 里返回，
+#: GetUserDataApi 不带这两个字段（机台报文 2026-09-17 / 09-25 全量核对）。
+CHARA_SLOT_API_TYPE = "GetGameKaleidxScopeApi"
+
+#: 请求体必须为空的接口。机台 34 次调用 `GetGameKaleidxScopeApi` 全部发 `{}`；
+#: 一旦带上 userId/token，服务器只回 gameKaleidxScopeList，读不到 charaSlot（实机验证）。
+#: 另一个硬条件：这一发必须排在 UserLoginApi 之后 —— 登录前发同样的 `{}` 也只回 scope 列表。
+EMPTY_BODY_API_TYPES = (CHARA_SLOT_API_TYPE,)
+
+#: 机台的旅行伙伴槽位数（charaSlot / charaLockSlot / playlog 的 characterId1..5）。
+CHARA_SLOT_COUNT = 5
+
+
+def normalize_chara_slot(chara_ids) -> list:
+    """把角色 ID 收成 5 槽数组：给 1 个就占满 5 槽，给 5 个按槽序。
+
+    长度不对必须当场报错，不能悄悄补 0 —— 补 0 等于把该槽清空。
+    """
+    ids = [int(i) for i in chara_ids or []]
+    if len(ids) == 1:
+        return ids * CHARA_SLOT_COUNT
+    if len(ids) != CHARA_SLOT_COUNT:
+        raise ValueError(
+            f"旅行伙伴只能给 1 个（占满 {CHARA_SLOT_COUNT} 槽）或 {CHARA_SLOT_COUNT} 个"
+            f"（按槽序），本次给了 {len(ids)} 个：{ids}"
+        )
+    return ids
+
+
+def build_character_entry(character: dict) -> dict:
+    """构造 userCharacterList 行（机台整包里就是这 4 个字段，原样回传不改角色状态）。"""
+    return {
+        "characterId": int(character.get("characterId") or 0),
+        "level": int(character.get("level") or 1),
+        "awakening": int(character.get("awakening") or 0),
+        "useCount": int(character.get("useCount") or 0),
+    }
+
+
+# ---------------------------------------------------------------
+# userItemList / userMapList 行
+# ---------------------------------------------------------------
+
+def build_item_entry(item_kind: int, item_id: int, stock: int = 1, is_valid: bool = True) -> dict:
+    """构造一条 userItemList 行。
+
+    itemKind：1 姓名框 2 称号 3 头像 4 礼物 5 歌曲 6 Master 7 Re:Master
+    8 宴谱 9 角色 10 搭档 11 背景板 12 功能票；领取场景 stock 固定 1。
+    """
+    return {
+        "itemKind": int(item_kind),
+        "itemId": int(item_id),
+        "stock": int(stock),
+        "isValid": bool(is_valid),
+    }
+
+
+def merge_user_items(*lists) -> list:
+    """合并多组 userItemList 行，按 (itemKind, itemId) 去重（后者覆盖前者）。"""
+    merged: dict = {}
+    for lst in lists:
+        for row in lst or []:
+            if not isinstance(row, dict):
+                continue
+            merged[(row.get("itemKind"), row.get("itemId"))] = row
+    return list(merged.values())
+
+
+def build_is_new_item_list(items) -> str:
+    """按 userItemList 行数生成 isNewItemList（一行一个 "1"；0 行时为 ""）。"""
+    return "1" * len(items or [])
+
+
+def build_map_entry(
+    map_id: int,
+    distance: int,
+    *,
+    is_lock: bool = False,
+    is_clear: bool = False,
+    is_complete: bool = True,
+    unlock_flag: int = 0,
+) -> dict:
+    """构造一条 userMapList 行（字段与 GetUserMapApi 返回同形）。"""
+    return {
+        "mapId": int(map_id),
+        "distance": int(distance),
+        "isLock": bool(is_lock),
+        "isClear": bool(is_clear),
+        "isComplete": bool(is_complete),
+        "unlockFlag": int(unlock_flag),
+    }
+
+
+def build_is_new_map_list(maps, flag: str = "0") -> str:
+    """按 userMapList 行数生成 isNewMapList（一行一个标志位；0 行时为 ""）。
+
+    实测机台报文："0" = 更新已存在的区域（跑图时 distance 增长就这么写），
+    "1" = 新增区域行。只标记完成用 "0"，服务器不走新区域的奖励发放。
+    """
+    return flag * len(maps or [])
+
+
+#: 音符数 -> DX 分上限（机台刻度：满 Critical Perfect 每颗音符 3 分）。
+def dx_score_max(notes) -> int:
+    total = sum(normalize_notes(notes))
+    return DX_SCORE_PER_NOTE * total
+
+
 # GetUserItemApi 的 itemKind 枚举
 # 1=Plate 2=Title 3=Icon 4=Present 5=Music 6=MusicMas 7=MusicRem
 # 8=MusicSrg 9=Character 10=Partner 11=Frame 12=Ticket
 USER_ITEM_KINDS = list(range(1, 13))
+#: GetUserItemApi 分区起始 nextIndex：itemKind * ITEM_INDEX_STRIDE。
+ITEM_INDEX_STRIDE = 10000000000
 USER_ITEM_KIND_NAMES = {
     1: "Plate", 2: "Title", 3: "Icon", 4: "Present", 5: "Music",
     6: "MusicMas", 7: "MusicRem", 8: "MusicSrg", 9: "Character",
@@ -295,7 +414,30 @@ def UserAll_payload(
     timestamp: int = None,
     login_date_time: int = None,
     user_playlog_list: list = None,
+    *,
+    chara_slot: list = None,
+    chara_lock_slot: list = None,
+    user_map_list: list = None,
+    user_item_list: list = None,
+    user_character_list: list = None,
+    user_music_detail_list: list = None,
+    is_new_music_detail_list: str = None,
+    is_new_item_list: str = None,
+    is_new_map_flag: str = "0",
 ):
+    """构建 UpsertUserAllApi 整包。
+
+    `GeneralUserInfo` 是按 `write_ops.API_ORDER` 顺序序列化（JSON 字符串）的各只读接口
+    响应，前 7 项固定为 User/Extend/Option/Rating/Charge/Activity/Mission；
+    第 8 项（可选）是 `GetGameKaleidxScopeApi` 的响应 —— 账号的 `charaSlot` /
+    `charaLockSlot` 只在它的 userData 里返回，缺了这一项就得靠默认值，
+    会把账号正在用的 5 个旅行伙伴写成 [1,1,1,1,1]。
+
+    关键字参数用于「本次要改什么」：不传即原样回传快照（userMapList/userItemList/
+    userCharacterList 保持空 = 不动这些表）。
+    user_music_detail_list 给定时整替换 userMusicDetailList（传分），
+    并把 is_new_music_detail_list="1" 告诉服务器这是新成绩；不传时仍是单条 musicData。
+    """
     userData = json.loads(GeneralUserInfo[0]) if GeneralUserInfo[0] else {}
     userExtend = json.loads(GeneralUserInfo[1]) if GeneralUserInfo[1] else {}
     userOption = json.loads(GeneralUserInfo[2]) if GeneralUserInfo[2] else {}
@@ -303,20 +445,28 @@ def UserAll_payload(
     userChargeList = json.loads(GeneralUserInfo[4]) if GeneralUserInfo[4] else {}
     userActivity = json.loads(GeneralUserInfo[5]) if GeneralUserInfo[5] else {}
     userMissionDataList = json.loads(GeneralUserInfo[6]) if GeneralUserInfo[6] else {}
+    kalei = json.loads(GeneralUserInfo[7]) if len(GeneralUserInfo) > 7 and GeneralUserInfo[7] else {}
 
     # ---- 各节兜底 ----
     ud = _safe_get(userData, ["userData"], {})
     if not isinstance(ud, dict):
         ud = {}
+    kalei_ud = _safe_get(kalei, ["userData"], {})
+    if not isinstance(kalei_ud, dict):
+        kalei_ud = {}
 
     def U(key, default=0):
         return ud.get(key, default)
 
-    def _chara_slot() -> list:
-        slot = ud.get("charaSlot")
-        if isinstance(slot, list) and len(slot) == 5:
-            return slot
-        return list(DEFAULT_USER_DATA["charaSlot"])
+    def _slot_array(key: str, override) -> list:
+        """charaSlot / charaLockSlot：显式覆盖 > GetUserDataApi > 槽位接口 > 默认。"""
+        if override is not None:
+            return normalize_chara_slot(override)
+        for src in (ud, kalei_ud):
+            value = src.get(key)
+            if isinstance(value, list) and len(value) == CHARA_SLOT_COUNT:
+                return [int(i) for i in value]
+        return list(DEFAULT_USER_DATA[key])
 
     ext = _safe_get(userExtend, ["userExtend"], None)
     ext = ext if isinstance(ext, dict) else dict(DEFAULT_USER_EXTEND)
@@ -351,6 +501,22 @@ def UserAll_payload(
         raise ValueError("UserAll_payload 需要显式传入 user_id")
     TimeStamp = timestamp if timestamp is not None else now_timestamp()
 
+    items = list(user_item_list or [])
+    maps = list(user_map_list or [])
+    characters = list(user_character_list or [])
+    music_details = (
+        list(user_music_detail_list) if user_music_detail_list is not None
+        else [musicData]
+    )
+    new_music_detail_list = (
+        is_new_music_detail_list if is_new_music_detail_list is not None else "0"
+    )
+    #: 道具标志按行给：本次新增 "1"、镜像已有行 "0"（不给则整批按新增）。
+    new_item_list = (
+        is_new_item_list if is_new_item_list is not None
+        else build_is_new_item_list(items)
+    )
+
     requestData_UserAll = {
         "userId": user_id,
         "playlogId": loginId,
@@ -378,8 +544,8 @@ def UserAll_payload(
                     "gradeRank": U('gradeRank'),
                     "classRank": U('classRank'),
                     "courseRank": U('courseRank'),
-                    "charaSlot": _chara_slot(),
-                    "charaLockSlot": U('charaLockSlot', [0, 0, 0, 0, 0]),
+                    "charaSlot": _slot_array("charaSlot", chara_slot),
+                    "charaLockSlot": _slot_array("charaLockSlot", chara_lock_slot),
                     "contentBit": U('contentBit', ""),
                     "playCount": U('playCount'),
                     "currentPlayCount": U('currentPlayCount'),
@@ -445,13 +611,13 @@ def UserAll_payload(
             ],
             "userExtend": [ext],
             "userOption": [opt],
-            "userCharacterList": [],
+            "userCharacterList": characters,
             "userGhost": [],
-            "userMapList": [],
+            "userMapList": maps,
             "userLoginBonusList": [],
             "userRatingList": [rating],
-            "userItemList": [],
-            "userMusicDetailList": [musicData],
+            "userItemList": items,
+            "userMusicDetailList": music_details,
             "userCourseList": [],
             "userFriendSeasonRankingList": [],
             "userChargeList": charge_list,
@@ -502,11 +668,11 @@ def UserAll_payload(
             "userTradeItemList": [],
             "userFavoritemusicList": [],
             "userKaleidxScopeList": [],
-            "isNewCharacterList": "",
-            "isNewMapList": "",
+            "isNewCharacterList": build_is_new_map_list(characters),
+            "isNewMapList": build_is_new_map_list(maps, is_new_map_flag),
             "isNewLoginBonusList": "",
-            "isNewItemList": "",
-            "isNewMusicDetailList": "0",
+            "isNewItemList": new_item_list,
+            "isNewMusicDetailList": new_music_detail_list,
             "isNewCourseList": "",
             "isNewFavoriteList": "11111",
             "isNewFriendSeasonRankingList": "",
@@ -527,8 +693,25 @@ def UserAll_payload(
 
 
 # ---------------------------------------------------------------
-# UploadUserPlaylogListApi（单独上传打歌记录）
+# Playlog（本局游玩记录）
 # ---------------------------------------------------------------
+
+#: 机台包里的 DX 分刻度：满 Critical Perfect 时每颗音符固定 3 分。
+DX_SCORE_PER_NOTE = 3
+
+
+def normalize_notes(notes) -> tuple:
+    """音符数归一化为 (tap, hold, slide, touch, break)。
+
+    曲库 charts[].notes 只有 4 位 [tap, hold, slide, break]（没有 touch），
+    5 位按机台顺序 [tap, hold, slide, touch, break]。
+    """
+    n = list(notes or [])
+    if len(n) >= 5:
+        return tuple(n[:5])
+    t, h, s, b = (n + [0, 0, 0, 0])[:4]
+    return t, h, s, 0, b
+
 
 def build_playlog(
     *,
@@ -543,15 +726,25 @@ def build_playlog(
     version: int = 1053000,
     timestamp: int = None,
     chara_slot: list = None,
+    chara_levels: list = None,
+    chara_awakenings: list = None,
     player_rating: int = 0,
     play_date: str = None,
     user_play_date: str = None,
+    notes: list = None,
     **extra,
 ) -> dict:
     """构建一条 Playlog 记录（字段与机台 Playlog 定义一一对应）。
 
     只传必填项即可；其余字段使用与 UpsertUserAllApi 一致的默认值。
     可用 extra 覆盖任意字段（例如 tapCriticalPerfect / comboStatus / isClear）。
+
+    notes: 谱面音符数（4 位或 5 位）。给定时按「全 Critical Perfect」填满判定，
+    并同步 maxCombo/totalCombo/maxSync 与 deluxscore（未显式传 deluxscore 时）。
+    机台会用判定反推 achievement，判定全 0 的成绩包会被服务器丢弃。
+
+    chara_slot / chara_levels / chara_awakenings: 本局在用的 5 个旅行伙伴及其
+    等级、觉醒度（取自 GetUserCharacterApi 的角色行），写进 characterId1..5 三组字段。
     """
     timestamp = timestamp if timestamp is not None else now_timestamp()
     tz = pytz.timezone("Asia/Shanghai")
@@ -560,7 +753,30 @@ def build_playlog(
     if user_play_date is None:
         user_play_date = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S") + ".0"
 
-    slot = (chara_slot or [0, 0, 0, 0, 0]) + [0] * 5
+    slot = (chara_slot or [0] * 5) + [0] * 5
+    #: 机台把本局在用伙伴的等级/觉醒度原样记进 playlog，空槽固定 1/0 ——
+    #: 与不传 chara_slot 时的旧行为一致。
+    lv = list(chara_levels or []) + [1] * 5
+    awake = list(chara_awakenings or []) + [0] * 5
+
+    judgments: dict = {}
+    if notes is not None:
+        tap, hold, slide, touch, brk = normalize_notes(notes)
+        total = tap + hold + slide + touch + brk
+        if total:
+            judgments = {
+                "tapCriticalPerfect": tap,
+                "holdCriticalPerfect": hold,
+                "slideCriticalPerfect": slide,
+                "touchCriticalPerfect": touch,
+                "breakCriticalPerfect": brk,
+                "isTap": tap > 0, "isHold": hold > 0, "isSlide": slide > 0,
+                "isTouch": touch > 0, "isBreak": brk > 0,
+                "maxCombo": total, "totalCombo": total, "maxSync": total,
+            }
+            if not deluxscore:
+                deluxscore = DX_SCORE_PER_NOTE * total
+
     rec = {
         "userId": 0,
         "orderId": 0,
@@ -593,11 +809,11 @@ def build_playlog(
         "playedUserId3": 0,
         "playedUserName3": "",
         "playedMusicLevel3": 0,
-        "characterId1": slot[0], "characterLevel1": 1, "characterAwakening1": 0,
-        "characterId2": slot[1], "characterLevel2": 1, "characterAwakening2": 0,
-        "characterId3": slot[2], "characterLevel3": 1, "characterAwakening3": 0,
-        "characterId4": slot[3], "characterLevel4": 1, "characterAwakening4": 0,
-        "characterId5": slot[4], "characterLevel5": 1, "characterAwakening5": 0,
+        "characterId1": slot[0], "characterLevel1": lv[0], "characterAwakening1": awake[0],
+        "characterId2": slot[1], "characterLevel2": lv[1], "characterAwakening2": awake[1],
+        "characterId3": slot[2], "characterLevel3": lv[2], "characterAwakening3": awake[2],
+        "characterId4": slot[3], "characterLevel4": lv[3], "characterAwakening4": awake[3],
+        "characterId5": slot[4], "characterLevel5": lv[4], "characterAwakening5": awake[4],
         "achievement": achievement,
         "deluxscore": deluxscore,
         "scoreRank": score_rank,
@@ -639,8 +855,35 @@ def build_playlog(
         "extBool1": False,
         "extBool2": False,
     }
+    rec.update(judgments)
     rec.update(extra)
     return rec
+
+
+# ---------------------------------------------------------------
+# 本局结算 / 单独上传打歌记录
+# ---------------------------------------------------------------
+
+def build_new_item_list_data(
+    user_id: int,
+    user_data: list,
+    playlogs: list,
+    version: int = 1053000,
+) -> dict:
+    """GetUserNewItemListApi 请求体：机台的「本局结算」。
+
+    实测机台包每次游玩结束都是
+    `GetUserNewItemListApi(userId, version, userData, userPlaylogList)`
+    先结算本局，约 30 秒后同样的 playlog 再随 UpsertUserAllApi 落库。
+    成绩/道具/区域都是在这一步被服务器采纳的，响应 userItemList 即本局掉的收藏品。
+    user_data 直接复用 UpsertUserAllApi 的 userData 行（同一个对象）。
+    """
+    return {
+        "userId": user_id,
+        "version": version,
+        "userData": user_data,
+        "userPlaylogList": playlogs,
+    }
 
 
 def build_playlog_list_data(
@@ -648,9 +891,10 @@ def build_playlog_list_data(
     playlogs: list,
     timestamp: int = None,
 ) -> dict:
-    """UploadUserPlaylogListApi 请求体：{"userId": ..., "userPlaylogList": [...]}。
+    """UploadUserPlaylogListApi 请求体：{"userId", "userPlaylogList", "loginDateTime"}。
 
-    响应为 {"returnCode": 1, "apiName": "UploadUserPlaylogListApi"}。
+    响应为 {"returnCode": 1, "apiName": "UploadUserPlaylogListApi"}，但实测服务器
+    会静默忽略这里的成绩 —— 传分要走 build_new_item_list_data 的结算时序。
     """
     return {
         "userId": user_id,

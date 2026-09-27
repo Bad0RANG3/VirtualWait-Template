@@ -61,6 +61,9 @@ run("gateway tests", "python3", ["-m", "pytest", "-q"], {
   env: { PYTHONPATH: "src" },
 });
 run("shared sdgb-client compile", "python3", ["-m", "compileall", "-q", "packages/sdgb-client"]);
+run("shared sdgb-client tests", "python3", ["-m", "pytest", "-q", "tests"], {
+  cwd: path.join(root, "packages/sdgb-client"),
+});
 run("bot compile", "python3", ["-m", "compileall", "-q", "services/bot"]);
 run("bot tests", "python3", ["-m", "pytest", "-q", "tests"], {
   cwd: bot,
