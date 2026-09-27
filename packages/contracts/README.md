@@ -14,6 +14,10 @@ Web（Zod）与 Python Gateway 测试共同校验这些文件。修改契约时�
 | `gateway-error.v1.schema.json` | Gateway 错误体 |
 | `public-profile.schema.json` | 允许公开的最小资料形状 |
 | `queue-entry-status.schema.json` | 排队记录状态枚举 |
+| `score-write-job-create-request.v1.schema.json` | 创建传分作业请求（`POST /v1/score-write-jobs`） |
+| `score-write-job-response.v1.schema.json` | 传分作业查询响应（处理中/成功/失败） |
+
+创建接口的响应（`{"jobId": …}`）两个端点共用 `verification-job-create-response.v1.schema.json`。
 
 ## Fixtures（`fixtures/`）
 
@@ -25,6 +29,10 @@ Web（Zod）与 Python Gateway 测试共同校验这些文件。修改契约时�
 | `verification-job-succeeded.v1.json` | 成功（含匿名 subject + profile） |
 | `verification-job-failed.v1.json` | 失败 |
 | `gateway-error-replay.v1.json` | 重放/校验类错误 |
+| `score-write-job-create-request.v1.json` | 合法传分请求样例 |
+| `score-write-job-processing.v1.json` | 传分写入中 |
+| `score-write-job-succeeded.v1.json` | 传分成功（含写入条数与是否回查） |
+| `score-write-job-failed.v1.json` | 传分失败 |
 
 ## 约束
 

@@ -8,11 +8,17 @@ import time
 from typing import Any
 
 
+JOB_KIND_VERIFICATION = "verification"
+JOB_KIND_SCORE_WRITE = "score_write"
+
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS verification_job (
   id TEXT PRIMARY KEY,
+  -- 'verification' = 扫码验身；'score_write' = 传分作业。两者的公开回执形状不同，
+  -- 查询时按 kind 过滤，避免用身份接口读回传分结果（反之亦然）。
+  kind TEXT NOT NULL DEFAULT 'verification' CHECK (kind IN ('verification', 'score_write')),
   status TEXT NOT NULL CHECK (status IN ('PROCESSING', 'LOGGING_OUT', 'SUCCEEDED', 'FAILED')),
   public_result TEXT,
   error_code TEXT,
@@ -54,6 +60,22 @@ class Repository:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             connection.executescript(SCHEMA)
+            self._ensure_kind_column(connection)
+
+    @staticmethod
+    def _ensure_kind_column(connection: sqlite3.Connection) -> None:
+        """Add ``kind`` to databases created before write jobs existed.
+
+        SQLite needs a DEFAULT for a NOT NULL column on an existing table; the
+        historical rows are all verification jobs.
+        """
+        columns = {
+            str(row["name"]) for row in connection.execute("PRAGMA table_info(verification_job)")
+        }
+        if "kind" not in columns:
+            connection.execute(
+                "ALTER TABLE verification_job ADD COLUMN kind TEXT NOT NULL DEFAULT 'verification'"
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=5, isolation_level=None)
@@ -103,13 +125,33 @@ class Repository:
             connection.execute("COMMIT")
         return True
 
-    def create_job(self, job_id: str, now: int, expires_at: int) -> None:
+    def create_job(
+        self, job_id: str, now: int, expires_at: int, kind: str = JOB_KIND_VERIFICATION
+    ) -> None:
+        if kind not in {JOB_KIND_VERIFICATION, JOB_KIND_SCORE_WRITE}:
+            raise ValueError("unknown job kind")
         with self._connect() as connection:
             connection.execute(
-                "INSERT INTO verification_job (id, status, public_result, error_code, expires_at, created_at, updated_at) "
-                "VALUES (?, 'PROCESSING', NULL, NULL, ?, ?, ?)",
-                (job_id, expires_at, now, now),
+                "INSERT INTO verification_job (id, kind, status, public_result, error_code, expires_at, created_at, updated_at) "
+                "VALUES (?, ?, 'PROCESSING', NULL, NULL, ?, ?, ?)",
+                (job_id, kind, expires_at, now, now),
             )
+
+    def fail_interrupted_writes(self, now: int) -> int:
+        """Fail write jobs left PROCESSING by a previous process.
+
+        Write jobs live in an in-memory queue and are never re-queued on
+        startup: a machine QR can only be used once, and a partially applied
+        write must not be retried automatically.
+        """
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE verification_job SET status = 'FAILED', error_code = 'JOB_INTERRUPTED', updated_at = ? "
+                "WHERE kind = ? AND status IN ('PROCESSING', 'LOGGING_OUT')",
+                (now, JOB_KIND_SCORE_WRITE),
+            )
+            rowcount = int(cursor.rowcount or 0)
+        return rowcount
 
     def mark_succeeded(self, job_id: str, result: dict[str, Any], now: int) -> None:
         with self._connect() as connection:
@@ -148,10 +190,14 @@ class Repository:
                 (error_code, now, job_id),
             )
 
-    def get_job(self, job_id: str, now: int) -> dict[str, Any] | None:
+    def get_job(
+        self, job_id: str, now: int, kind: str = JOB_KIND_VERIFICATION
+    ) -> dict[str, Any] | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT status, public_result, error_code, expires_at FROM verification_job WHERE id = ?", (job_id,)
+                "SELECT status, public_result, error_code, expires_at FROM verification_job "
+                "WHERE id = ? AND kind = ?",
+                (job_id, kind),
             ).fetchone()
             if row is None:
                 return None

@@ -36,6 +36,10 @@ def test_v1_fixtures_validate_against_versioned_schemas() -> None:
         "verification-job-response.v1.schema.json": "verification-job-processing.v1.json",
         "verification-job-response.v1.schema.json": "verification-job-failed.v1.json",
         "gateway-error.v1.schema.json": "gateway-error-replay.v1.json",
+        "score-write-job-create-request.v1.schema.json": "score-write-job-create-request.v1.json",
+        "score-write-job-response.v1.schema.json": "score-write-job-processing.v1.json",
+        "score-write-job-response.v1.schema.json": "score-write-job-succeeded.v1.json",
+        "score-write-job-response.v1.schema.json": "score-write-job-failed.v1.json",
     }
     for schema_file, fixture_file in pairs.items():
         errors = list(validator(schema_file).iter_errors(load_json(FIXTURES / fixture_file)))
@@ -45,3 +49,14 @@ def test_v1_fixtures_validate_against_versioned_schemas() -> None:
 def test_succeeded_job_requires_identity_and_profile() -> None:
     errors = list(validator("verification-job-response.v1.schema.json").iter_errors({"status": "SUCCEEDED"}))
     assert errors
+
+
+def test_score_write_succeeded_requires_written_count() -> None:
+    errors = list(validator("score-write-job-response.v1.schema.json").iter_errors({"status": "SUCCEEDED"}))
+    assert errors
+
+
+def test_score_write_request_rejects_unknown_fields() -> None:
+    payload = load_json(FIXTURES / "score-write-job-create-request.v1.json")
+    payload["sleepSeconds"] = 1
+    assert list(validator("score-write-job-create-request.v1.schema.json").iter_errors(payload))

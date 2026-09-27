@@ -201,11 +201,12 @@
 | 模块 | 职责 |
 |---|---|
 | `config.py` | `Settings.from_env()`：严格校验，拒绝占位符（`change_me` 等）、弱密钥、模板 `key_id`、相对路径；provider 合法性 |
-| `app.py` | HTTP 服务器与路由（`/v1/verification-jobs`），按配置选 provider |
+| `app.py` | HTTP 服务器与路由（`/v1/verification-jobs`、`/v1/score-write-jobs`），按配置选 provider |
 | `transport.py` | 安全上游传输：禁跟随重定向（防 SSRF）、响应大小上限、类型化错误 |
 | `security.py` | HMAC-SHA256 请求签名验证、nonce/时间戳/重放防护、匿名 subject 派生 |
-| `repository.py` | SQLite 持久层：`verification_job`/`used_nonce`/`rate_limit_bucket`/`pending_logout` |
+| `repository.py` | SQLite 持久层：`verification_job`（按 `kind` 区分验身/传分作业）/`used_nonce`/`rate_limit_bucket`/`pending_logout` |
 | `provider.py` | `VerificationProvider` 协议 + mock/http/sdgb_preview 三实现，防御性 JSON 解析 |
+| `score_write.py` | 传分作业：内存串行队列 + 最小写入间隔，复用 `packages/sdgb-client` 的 `transfer_score_with_qr`；二维码只在内存中 |
 | `sdgb_preview.py` | SDGB 免登录预览：AiMe `get_data` 换 token → `GetUserPreviewApi`，AES 参数加密，仅内存 |
 | `service.py` | 业务编排：建任务、调 provider、落状态、重试待登出任务 |
 | `contracts.py` | 公开 v1 契约：请求解析/响应构造/错误码与状态机 |
@@ -249,4 +250,4 @@
 | `queue/join-concurrency.test.ts` | 唯一索引兜底/原子抢位 |
 | `queue/public-snapshot.test.ts` | 公开快照截断与 totalWaiting |
 
-Gateway 测试见 `services/sdgb-gateway/tests/`（pytest，`test_config`/`test_contract_fixtures`/`test_http_security`/`test_pending_logout`/`test_provider`/`test_sdgb_preview`）。
+Gateway 测试见 `services/sdgb-gateway/tests/`（pytest，`test_config`/`test_contract_fixtures`/`test_http_security`/`test_pending_logout`/`test_provider`/`test_sdgb_preview`/`test_sdgb_full`/`test_score_write`）。

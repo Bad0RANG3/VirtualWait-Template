@@ -9,6 +9,9 @@ description = "Signed verification-job gateway for VirtualWait"
 requires-python = ">=3.11"
 dependencies = [
   "pycryptodome>=3.20",
+  # 传分作业复用 packages/sdgb-client 的写流程（httpx + pytz 是它的运行时依赖）。
+  "httpx>=0.27",
+  "pytz>=2024.1",
 ]
 
 [project.optional-dependencies]

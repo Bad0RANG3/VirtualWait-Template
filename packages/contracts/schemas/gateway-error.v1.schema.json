@@ -28,6 +28,14 @@
             "UPSTREAM_TIMEOUT",
             "UPSTREAM_PROTOCOL_ERROR",
             "JOB_EXPIRED",
+            "JOB_INTERRUPTED",
+            "SCORE_WRITE_DISABLED",
+            "WRITE_QUEUE_FULL",
+            "LOGIN_COOLDOWN",
+            "SNAPSHOT_INCOMPLETE",
+            "UPSTREAM_REJECTED",
+            "WRITE_NOT_CONFIRMED",
+            "WRITE_FAILED",
             "INTERNAL_ERROR"
           ]
         }

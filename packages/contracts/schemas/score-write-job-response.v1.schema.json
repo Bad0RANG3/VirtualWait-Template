@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://virtualwait.local/schemas/score-write-job-response.v1.json",
+  "title": "ScoreWriteJobResponseV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status"],
+  "properties": {
+    "status": { "type": "string", "enum": ["SUCCEEDED", "FAILED", "PROCESSING"] },
+    "errorCode": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Z][A-Z0-9_]*$" },
+    "writtenCount": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "verified": { "type": "boolean" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "SUCCEEDED" } }, "required": ["status"] },
+      "then": { "required": ["writtenCount", "verified"], "not": { "required": ["errorCode"] } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "FAILED" } }, "required": ["status"] },
+      "then": { "required": ["errorCode"] }
+    },
+    {
+      "if": { "properties": { "status": { "const": "PROCESSING" } }, "required": ["status"] },
+      "then": {
+        "not": { "anyOf": [{ "required": ["errorCode"] }, { "required": ["writtenCount"] }, { "required": ["verified"] }] }
+      }
+    }
+  ]
+}

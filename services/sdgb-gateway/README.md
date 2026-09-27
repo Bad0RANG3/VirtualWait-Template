@@ -146,6 +146,56 @@ VW_SDGB_TIMEOUT_SEC=10
 原始二维码、token、完整上游响应不会入库；`pending_logout` 只保存加密恢复上下文。
 
 
+## 传分接口（真实写操作，默认关闭）
+
+`POST /v1/score-write-jobs` 把一张机台二维码 + 最多 5 条成绩交给
+`packages/sdgb-client` 的 `transfer_score_with_qr`（与机器人命令、CLI 同一条实机验证过的
+写入时序：换 token → isLogin 探测 → 登录 → 整包快照 → 模拟游玩等待 → `GetUserNewItemListApi`
+结算 → `UpsertUserAllApi` → 登出）。Gateway 不另写一份实现。
+
+```env
+VW_SDGB_WRITE_ENABLED=1              # 需要 provider=sdgb_preview 或 sdgb_full（共用凭据组）
+VW_SDGB_WRITE_MIN_INTERVAL_SEC=900   # 两次写入之间的最小间隔（机台 15 分钟小黑屋）
+VW_SDGB_WRITE_JOB_TTL_SEC=1800       # 回执保留时长，必须覆盖整条写入链路
+VW_SDGB_WRITE_QUEUE_CAPACITY=2       # 内存排队深度，满了返回 WRITE_QUEUE_FULL
+```
+
+请求（与验身接口同样的 HMAC 签名头）：
+
+```json
+{"qrCode":"<机台登录二维码字符串>","scores":["1234:4:1005000:4:5"],"confirm":true}
+```
+
+- `scores` 为 1~5 条 `MUSICID:LEVEL:ACHIEVEMENT[:COMBO[:SYNC]]`；`ACHIEVEMENT` 可写
+  `1005000`、`100.5000` 或 `100.5%`。契约层只做形状校验，数值上下界由共享包
+  `parse_score_specs` 在**换 token 之前**把守，非法成绩不会烧掉二维码。
+- `confirm`（默认 `false`）为真时写入后回查账号谱面，确认达标才报 `SUCCEEDED`；
+  共享包里的同名参数叫 `verify`，Gateway 侧改叫 `confirm` 以免和 TLS 校验开关混淆。
+
+响应：`202 {"jobId":"…"}`，随后 `GET /v1/score-write-jobs/{jobId}` 轮询：
+
+```json
+{"status":"PROCESSING"}
+{"status":"SUCCEEDED","writtenCount":2,"verified":true}
+{"status":"FAILED","errorCode":"LOGIN_COOLDOWN"}
+```
+
+`verified=false` 表示“服务器已采纳提交但未回查”，不是失败。写入回执不含任何身份字段，
+传分作业也无法通过 `/v1/verification-jobs/{id}` 读到（回执形状不同，按 `kind` 隔离）。
+
+失败错误码：`LOGIN_COOLDOWN`（小黑屋）、`QR_EXCHANGE_FAILED`（换 token 失败/码无效）、
+`UPSTREAM_REJECTED`（写接口返回空响应或异常 `returnCode`）、`SNAPSHOT_INCOMPLETE`
+（前置快照查询失败，已中止上传）、`WRITE_NOT_CONFIRMED`（提交成功但回查未达标）、
+`JOB_EXPIRED`、`JOB_INTERRUPTED`、`WRITE_QUEUE_FULL`、`SCORE_WRITE_DISABLED`。
+
+运维纪律：
+
+1. **一次一码**：每张机台二维码只够一次写入，成功登录即作废，因此队列**不重试**已提交的作业；
+2. 作业按 `VW_SDGB_WRITE_MIN_INTERVAL_SEC` 串行执行（默认 900 秒），队列只在内存里持有二维码；
+3. 进程重启时残留的 `PROCESSING` 写作业直接判 `JOB_INTERRUPTED`，绝不自动重放；
+4. 原始二维码与成绩条目都不入库、不入日志，数据库只有作业状态行与公开回执；
+5. 这是对真实账号的写入，只对有权操作的账号开放，且默认关闭。
+
 ## 真实 provider 安全要求
 
 真实 provider 至少必须：

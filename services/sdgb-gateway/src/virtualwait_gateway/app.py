@@ -6,11 +6,17 @@ import json
 import re
 from threading import BoundedSemaphore, Event, Thread
 import time
-from typing import Any, Type
+from typing import Any, Callable, Type
 from urllib.parse import urlsplit
 
 from .config import Settings
-from .contracts import ContractError, create_job_response, error_response, parse_create_job
+from .contracts import (
+    ContractError,
+    create_job_response,
+    error_response,
+    parse_create_job,
+    parse_create_score_job,
+)
 from .provider import (
     HttpVerificationProvider,
     MockVerificationProvider,
@@ -18,6 +24,7 @@ from .provider import (
     SdgbPreviewVerificationProvider,
     VerificationProvider,
 )
+from .score_write import QueueFullError, ScoreWriteService, transfer_scores
 from .sdgb_full import SdgbFullSettings
 from .sdgb_preview import SdgbPreviewSettings
 from .repository import Repository
@@ -26,7 +33,10 @@ from .service import VerificationService
 
 
 MAX_BODY_BYTES = 4 * 1024
+VERIFICATION_JOBS_PATH = "/v1/verification-jobs"
+SCORE_WRITE_JOBS_PATH = "/v1/score-write-jobs"
 JOB_PATH = re.compile(r"^/v1/verification-jobs/([^/]+)$")
+SCORE_WRITE_JOB_PATH = re.compile(r"^/v1/score-write-jobs/([^/]+)$")
 
 
 def create_provider(settings: Settings) -> VerificationProvider:
@@ -86,13 +96,30 @@ def create_provider(settings: Settings) -> VerificationProvider:
 
 
 class GatewayApplication:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        score_write_handler: Callable[..., Any] | None = None,
+    ) -> None:
         self.settings = settings
         self.repository = Repository(settings.database_path)
         self.service = VerificationService(self.repository, create_provider(settings))
         # Recovery runs before accepting new jobs. Provider implementations must
         # keep any recoverable state encrypted and never persist raw QR values.
         self.service.recover_pending_logouts()
+        self.score_write: ScoreWriteService | None = None
+        if settings.score_write_enabled:
+            service = ScoreWriteService(
+                self.repository,
+                score_write_handler or transfer_scores,
+                job_ttl_sec=settings.score_write_job_ttl_sec,
+                min_interval_sec=settings.score_write_min_interval_sec,
+                queue_capacity=settings.score_write_queue_capacity,
+            )
+            # 传分作业跑在内存队列里：进程重启时残留的 PROCESSING 作业必须直接判失败，
+            # 机台二维码不可复用，半途而废的写入也不能自动重试。
+            service.start()
+            self.score_write = service
         self.verification_slots = BoundedSemaphore(settings.max_concurrent)
 
     def authorize(self, handler: BaseHTTPRequestHandler, body: bytes) -> bool:
@@ -185,6 +212,12 @@ def create_handler(
                 return False
             return True
 
+        def _read_job(self, result: dict[str, Any] | None) -> None:
+            if result is None:
+                self._error(HTTPStatus.NOT_FOUND, "JOB_EXPIRED")
+                return
+            self._send_json(HTTPStatus.OK, result)
+
         def do_GET(self) -> None:  # noqa: N802
             if self.path == "/healthz":
                 if application.repository.healthcheck():
@@ -192,35 +225,68 @@ def create_handler(
                 else:
                     self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False})
                 return
-            match = JOB_PATH.fullmatch(urlsplit(self.path).path)
+            path = urlsplit(self.path).path
+            write_match = SCORE_WRITE_JOB_PATH.fullmatch(path)
+            if write_match:
+                if not self._authorize(b""):
+                    return
+                if application.score_write is None:
+                    self._error(HTTPStatus.FORBIDDEN, "SCORE_WRITE_DISABLED")
+                    return
+                self._read_job(
+                    application.score_write.get_job(write_match.group(1))
+                )
+                return
+            match = JOB_PATH.fullmatch(path)
             if not match:
                 self._error(HTTPStatus.NOT_FOUND, "INVALID_REQUEST")
                 return
             if not self._authorize(b""):
                 return
-            result = application.service.get_job(match.group(1))
-            if result is None:
-                self._error(HTTPStatus.NOT_FOUND, "JOB_EXPIRED")
+            self._read_job(application.service.get_job(match.group(1)))
+
+        def _parse(self, body: bytes, parser: Callable[[Any], Any]) -> Any:
+            try:
+                return parser(json.loads(body.decode("utf-8")))
+            except (UnicodeDecodeError, json.JSONDecodeError, ContractError):
+                self._error(HTTPStatus.BAD_REQUEST, "INVALID_REQUEST")
+                return None
+
+        def _create_score_write_job(self) -> None:
+            body = self._read_body()
+            if body is None or not self._authorize(body):
                 return
-            self._send_json(HTTPStatus.OK, result)
+            if application.score_write is None:
+                self._error(HTTPStatus.FORBIDDEN, "SCORE_WRITE_DISABLED")
+                return
+            request = self._parse(body, parse_create_score_job)
+            if request is None:
+                return
+            try:
+                job_id = application.score_write.submit(request)
+            except QueueFullError:
+                self._error(HTTPStatus.TOO_MANY_REQUESTS, "WRITE_QUEUE_FULL")
+                return
+            self._send_json(HTTPStatus.ACCEPTED, create_job_response(job_id))
 
         def do_POST(self) -> None:  # noqa: N802
-            if urlsplit(self.path).path != "/v1/verification-jobs":
+            path = urlsplit(self.path).path
+            if path == SCORE_WRITE_JOBS_PATH:
+                self._create_score_write_job()
+                return
+            if path != VERIFICATION_JOBS_PATH:
                 self._error(HTTPStatus.NOT_FOUND, "INVALID_REQUEST")
                 return
             body = self._read_body()
             if body is None or not self._authorize(body):
                 return
+            request = self._parse(body, parse_create_job)
+            if request is None:
+                return
             if not application.verification_slots.acquire(blocking=False):
                 self._error(HTTPStatus.TOO_MANY_REQUESTS, "RATE_LIMITED")
                 return
             try:
-                try:
-                    payload = json.loads(body.decode("utf-8"))
-                    request = parse_create_job(payload)
-                except (UnicodeDecodeError, json.JSONDecodeError, ContractError):
-                    self._error(HTTPStatus.BAD_REQUEST, "INVALID_REQUEST")
-                    return
                 job_id = application.service.create_job(request)
                 self._send_json(HTTPStatus.ACCEPTED, create_job_response(job_id))
             finally:
@@ -235,8 +301,10 @@ def create_handler(
     return GatewayHandler
 
 
-def create_server(settings: Settings) -> ThreadingHTTPServer:
-    application = GatewayApplication(settings)
+def create_server(
+    settings: Settings, score_write_handler: Callable[..., Any] | None = None
+) -> ThreadingHTTPServer:
+    application = GatewayApplication(settings, score_write_handler)
     # Cap concurrent HTTP request handlers independently of verification slots.
     worker_slots = BoundedSemaphore(settings.max_http_workers)
     server = ThreadingHTTPServer(
@@ -275,13 +343,26 @@ def main() -> None:
         daemon=True,
     )
     recovery.start()
+    stop_write = Event()
+    score_worker: Thread | None = None
+    if application.score_write is not None:
+        score_worker = Thread(
+            target=application.score_write.run_worker,
+            args=(stop_write,),
+            name="virtualwait-score-write",
+            daemon=True,
+        )
+        score_worker.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         stop_recovery.set()
+        stop_write.set()
         recovery.join(timeout=settings.recovery_interval_sec + 1)
+        if score_worker is not None:
+            score_worker.join(timeout=2)
         server.server_close()
 
 
