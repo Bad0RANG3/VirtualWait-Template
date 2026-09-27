@@ -44,11 +44,15 @@
 
 ## 四、高风险命令纪律（B50 / 发票）
 
-- `/b50`、`/fp` 每次使用**新二维码**，查询结束**必须登出**；
+- `/b50` 与全部写命令（`/fp` `/giveitem` `/score` `/map` `/chara`）每次使用**新二维码**，
+  登录成功即消耗该码，流程走完**必须登出**；
 - 同账号 10 分钟内重复查询走本地缓存，不重复登录；
 - 中断可能触发小黑屋（`isLogin=1`，约 15 分钟冷却），期间不得反复登录；
 - `token_cache.json` / `records_cache.json` 只允许记录 `userID` 与时间，禁止落盘二维码或 token；
-- 机器人到 SDGB / AiMe 的请求必须启用 TLS 证书校验，禁止 `verify=False`。
+- 机器人到 SDGB / AiMe 的请求必须启用 TLS 证书校验，禁止 `verify=False`
+  （`node scripts/verify-tls-verification.mjs` 与 CI 步骤会拦截）；
+- 群消息里出现机台登录二维码串（`SGWCMAID...`）由 `services/bot/plugins/qr_guard.py`
+  撤回（仅当机器人在该群为群主/管理员）；私聊使用命令不受影响。
 
 ## 五、发布前检查
 

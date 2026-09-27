@@ -31,6 +31,12 @@ jobs:
             echo "Local runtime/secret files are tracked in git" >&2
             exit 1
           fi
+      - name: Reject disabled TLS verification
+        run: |
+          if grep -rn "verify=False" --include='*.py' packages services; then
+            echo "TLS certificate verification must stay enabled for SDGB/AiMe requests" >&2
+            exit 1
+          fi
       - name: Create ephemeral verification secrets
         run: |
           {

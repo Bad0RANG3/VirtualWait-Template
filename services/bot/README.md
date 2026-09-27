@@ -9,6 +9,7 @@
 QQ ⇄ NapCat（OneBot v11 WS，127.0.0.1:3001）
      ⇄ NoneBot2（本目录 bot.py，加载 plugins/）
          ├─ plugins/b50.py         /help、/b50 与写命令 /fp /giveitem /score /map /chara
+         ├─ plugins/qr_guard.py    群消息里出现 SGWCMAID 二维码串即撤回（需机器人为群主/管理员）
          └─ plugins/queue_notify.py  轮询 VirtualWait Web Bot API，机台空闲 @ 队首
 ```
 

@@ -21,7 +21,8 @@
   gitignored 的 `sdgb/settings_local.py` 注入；缺少密钥必须 fail-fast；
 - `token_cache.json` / `records_cache.json` 只允许记录 `userID` 与时间，禁止落盘
   原始二维码或 token；`services/bot/napcat/`、仓库根 `data/` 等运行时目录禁止入库；
-- 机器人到 SDGB/AiMe 的请求必须启用 TLS 证书校验，禁止 `verify=False`。
+- 机器人到 SDGB/AiMe 的请求必须启用 TLS 证书校验，禁止 `verify=False`
+  （`scripts/verify-tls-verification.mjs` 已把这条做成门禁，CI 同步校验）。
 
 ## 数据与日志
 

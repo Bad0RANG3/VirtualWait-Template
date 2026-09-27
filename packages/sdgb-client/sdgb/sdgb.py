@@ -173,7 +173,7 @@ class MaimaiClient:
         user_id = qr_resp["userID"]
         token = qr_resp["token"]
 
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient(verify=True) as client:
             # 1) Preview 探测是否已在他处登录
             preview = None
             try:
@@ -282,7 +282,7 @@ class MaimaiClient:
             api_types = list(READONLY_API_TYPES)
 
         results = {}
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient(verify=True) as client:
             for api_type in api_types:
                 try:
                     if api_type == "GetUserItemApi":
@@ -332,5 +332,5 @@ class MaimaiClient:
             place_id=place_id,
             client_id=client_id,
         )
-        async with httpx.AsyncClient(verify=False) as client:
+        async with httpx.AsyncClient(verify=True) as client:
             return await self.call_api(client, "UserLogoutApi", data, user_id)

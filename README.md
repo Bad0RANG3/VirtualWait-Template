@@ -192,7 +192,8 @@ VW_SDGB_TIMEOUT_SEC=10
 - **登录验证密钥不要动**：`GATEWAY_SHARED_SECRET`、`PUBLIC_ID_HMAC_SECRET`、`GATEWAY_KEY_ID` 必须 Web ↔ Gateway 两端一致；`BOT_API_TOKEN` 必须 Web ↔ Bot 一致；每个环境独立随机；
 - **敏感文件不提交**：`packages/sdgb-client/sdgb/settings_local.py`、各 `.env.local` / `.env`、`services/bot/napcat/`、`data/`、数据库、WAL、备份全部 gitignored，提交前检查 `git status`；
 - **架构红线**：Web 永远 `GATEWAY_MODE=remote`；Gateway 只监听回环 / 受控网络；SQLite 单机单实例；`maintenance` 常驻；公开接口永不返回 QQ；
-- **高风险命令纪律**：`/b50`、`/fp` 每次新码、查完必登出，遵守小黑屋冷却。
+- **高风险命令纪律**：写命令每次新码（登录一次即消耗）、流程走完必登出，遵守小黑屋冷却；
+  群内出现二维码串由 `qr_guard` 撤回。
 
 ## 验证
 
@@ -202,7 +203,8 @@ VW_SDGB_TIMEOUT_SEC=10
 node scripts/verify-all.mjs
 ```
 
-一键门禁包含 Web 生产预检、单元测试、HTTP E2E、浏览器测试、构建、Gateway 测试、sdgb-client / Bot 语法检查与部署样例检查。
+一键门禁包含 Web 生产预检、单元测试、HTTP E2E、浏览器测试、构建、Gateway 测试、
+sdgb-client 写路径测试与编译检查、TLS 校验门禁（禁止 `verify=False`）、Bot 测试与部署样例检查。
 
 ## 文档
 

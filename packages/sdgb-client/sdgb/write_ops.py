@@ -1019,7 +1019,7 @@ async def issue_ticket_with_qr(
     _cache_token(qr, user_id, token)
 
     try:
-        async with httpx.AsyncClient(verify=False) as h:
+        async with httpx.AsyncClient(verify=True) as h:
             # 2) 查库存（免登录；GetUserChargeApi 仅需二维码 token）
             await say("查询当前票据…")
             before = await client.call_api(
@@ -1118,7 +1118,7 @@ async def give_items_with_qr(
     _cache_token(qr, user_id, token)
 
     try:
-        async with httpx.AsyncClient(verify=False) as h:
+        async with httpx.AsyncClient(verify=True) as h:
             login = await _preview_and_login(client, h, user_id, token)
             login_ts = login["loginDateTime"]
             login_id = login["loginResponse"]["loginId"]
@@ -1237,7 +1237,7 @@ async def transfer_score_with_qr(
     _cache_token(qr, user_id, token)
 
     try:
-        async with httpx.AsyncClient(verify=False) as h:
+        async with httpx.AsyncClient(verify=True) as h:
             login = await _preview_and_login(client, h, user_id, token)
             login_ts = login["loginDateTime"]
             login_id = login["loginResponse"]["loginId"]
@@ -1449,7 +1449,7 @@ async def complete_maps_with_qr(
         return f"{map_id}·{name}" if name else str(map_id)
 
     try:
-        async with httpx.AsyncClient(verify=False) as h:
+        async with httpx.AsyncClient(verify=True) as h:
             await say("读取区域进度…")
             before = await fetch_maps(client, h, user_id, token)
             goals, already_done = plan_map_goals(before, specs)
@@ -1638,7 +1638,7 @@ async def set_chara_slots_with_qr(
     _cache_token(qr, user_id, token)
 
     try:
-        async with httpx.AsyncClient(verify=False) as h:
+        async with httpx.AsyncClient(verify=True) as h:
             #: charaSlot / charaLockSlot 只在「登录态」的 GetGameKaleidxScopeApi 里返回
             #: （机台报文：同一个空请求体，登录前只给 gameKaleidxScopeList），
             #: 所以现值、归属校验都必须排在 UserLoginApi 之后、任何写包之前。
