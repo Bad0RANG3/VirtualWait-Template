@@ -61,6 +61,7 @@ from .payload import (
     CHARA_SLOT_COUNT,
     ITEM_INDEX_STRIDE,
     USER_ITEM_KINDS,
+    build_user_data,
 )
 from .runtime import DATA_DIR
 
@@ -324,21 +325,27 @@ async def fetch_characters(client, h, user_id: int, token: str, cookie=None) -> 
     }
 
 
-async def fetch_chara_slots(client, h, user_id: int) -> tuple:
+async def fetch_chara_slots(client, h, user_id: int, token: str = "") -> tuple:
     """读账号当前的旅行伙伴槽位：(charaSlot, charaLockSlot)。
 
     这两个字段只在 `GetGameKaleidxScopeApi` 的 userData 里返回（GetUserDataApi 没有），
     所以写前的现值和写后的回查都必须走它。
-    ⚠️ 两个硬条件（机台报文 34 次全量核对 + 实机）：请求体必须是空的 `{}`，
-    而且要在 UserLoginApi 之后（登录前同一个 `{}` 只回 gameKaleidxScopeList）。
+    ⚠️ 三个硬条件（机台报文 2026-09-17/25/27 全量核对：Scope 接口共调 34 次，
+    回 userData 的 11 次**无一例外紧跟在 GetUserDataApi 之后**）：
+      1. 同一会话里必须先 call 一次 `GetUserDataApi` —— 登录后直接读 Scope 只回
+         `gameKaleidxScopeList`（实机烧掉两张码验证过）；
+      2. 请求体必须是空的 `{}`（带 userId/token 同样只回 scopeList）；
+      3. 必须在 `UserLoginApi` 之后。
     会话 cookie 由 client.cookies 自动带上。
     """
+    await client.call_api(h, "GetUserDataApi", build_user_data(user_id, token), user_id)
     resp = await client.call_api(h, CHARA_SLOT_API_TYPE, {}, user_id)
     ud = resp.get("userData")
     if not isinstance(ud, dict):
         raise RuntimeError(
             f"{CHARA_SLOT_API_TYPE} 没返回 userData"
             "（未登录/会话失效，或账号读不到槽位），未写入任何数据。"
+            f"响应键：{sorted(resp.keys())}"
         )
     return list(ud.get("charaSlot") or []), list(ud.get("charaLockSlot") or [])
 
@@ -1648,7 +1655,7 @@ async def set_chara_slots_with_qr(
             login_date = login["loginResponse"]["lastLoginDate"]
 
             await say("读取旅行伙伴槽位与角色表…")
-            slots, lock = await fetch_chara_slots(client, h, user_id)
+            slots, lock = await fetch_chara_slots(client, h, user_id, token)
             slots = [int(i) for i in slots]
             lock = [int(i) for i in lock]
             if slot is None:
@@ -1714,7 +1721,7 @@ async def set_chara_slots_with_qr(
                 if not verify:
                     return f"✅ 已提交旅行伙伴槽位 {slot}（未回查）。"
 
-                after_slots, after_lock = await fetch_chara_slots(client, h, user_id)
+                after_slots, after_lock = await fetch_chara_slots(client, h, user_id, token)
                 after_slots = [int(i) for i in after_slots]
                 log.append(
                     f"第 {round_no} 轮回查：charaSlot {slots}→{after_slots}，"

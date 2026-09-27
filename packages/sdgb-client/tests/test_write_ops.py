@@ -323,6 +323,7 @@ class _FakeClient:
     charas: list = []       # GetUserCharacterApi 的角色行
     accept_chara_slot = True  # True=收下；False=永不改；"with_lock"=只认槽位与锁位一致的包
     logged_in = False       # 登录前的 GetGameKaleidxScopeApi 不返回 userData（实测行为）
+    user_data_read = False  # 本会话是否已 call 过 GetUserDataApi（机台报文：没读过就不回 userData）
 
     async def call_api(self, h, api, data, user_id, **kw):
         _FakeClient.calls.append((api, data))
@@ -353,9 +354,12 @@ class _FakeClient:
                 _FakeClient.slots = list(want or _FakeClient.slots)
                 _FakeClient.locks = list(lock or _FakeClient.locks)
             return {"returnCode": 1}
+        if api == "GetUserDataApi":
+            _FakeClient.user_data_read = True
+            return {"userData": {"playerRating": 16355}}
         if api == "GetGameKaleidxScopeApi":
-            #: 实机 + 机台报文规则：只有「登录后 + 空请求体」才回 userData
-            if not _FakeClient.logged_in or data:
+            #: 实机 + 机台报文规则：登录后 + 空请求体 + 本会话先 call 过 GetUserDataApi
+            if not _FakeClient.logged_in or data or not _FakeClient.user_data_read:
                 return {"userId": user_id, "gameKaleidxScopeList": []}
             return {"userId": user_id, "banState": 0, "userData": {
                 "charaSlot": list(_FakeClient.slots),
@@ -413,6 +417,7 @@ def _patch_write_env(monkeypatch, w):
     _FakeClient.charas = _CHARAS
     _FakeClient.accept_chara_slot = True
     _FakeClient.logged_in = False
+    _FakeClient.user_data_read = False
     _FakeClient.rating_rows = _RATING_ROWS
     # write_ops 在函数内 `from .sdgb import MaimaiClient`，所以要 patch 源模块属性
     monkeypatch.setattr("sdgb.sdgb.MaimaiClient", lambda *a, **kw: _FakeClient())
@@ -701,20 +706,29 @@ def _chara_setup(monkeypatch, w, accept=True):
     _FakeClient.accept_chara_slot = accept
 
 
-def test_chara_slots_need_login_and_empty_body(monkeypatch):
-    """读槽位的两个硬条件（实机结论）：UserLoginApi 之后 + 请求体为 `{}`。"""
+def test_chara_slots_need_login_empty_body_and_user_data_first(monkeypatch):
+    """读槽位的三个硬条件（机台报文 34 次全量核对）：登录后 + 请求体 `{}` +
+    同一会话里紧跟在 `GetUserDataApi` 之后。少任何一条服务器只回 scopeList。"""
     from sdgb import write_ops as w
 
     _chara_setup(monkeypatch, w)
     fake = _FakeClient()
     with pytest.raises(RuntimeError, match="没返回 userData"):   # 登录前读不到
         asyncio.run(w.fetch_chara_slots(fake, None, 42))
-    assert _apis() == ["GetGameKaleidxScopeApi"]
-    assert _FakeClient.calls[0][1] == {}                     # 请求体必须为空
+    # 即使 helper 自己补发了 GetUserDataApi，未登录仍然只回 scopeList
+    assert _apis() == ["GetUserDataApi", "GetGameKaleidxScopeApi"]
+    assert _FakeClient.calls[1][1] == {}                        # 请求体必须为空
     _FakeClient.logged_in = True
-    assert asyncio.run(w.fetch_chara_slots(fake, None, 42)) == (
+    _FakeClient.calls = []
+    _FakeClient.user_data_read = False
+    # 登录后 helper 会自己先读 GetUserDataApi 再读 Scope（相邻顺序由报文决定）
+    assert asyncio.run(w.fetch_chara_slots(fake, None, 42, "TOK")) == (
         [101, 102, 103, 104, 105], [0, 0, 0, 0, 0]
     )
+    assert _FakeClient.calls[-2:] == [
+        ("GetUserDataApi", {"userId": 42, "token": "TOK"}),
+        (CHARA_SLOT_API_TYPE, {}),
+    ]
 
 
 def test_query_sends_empty_body_for_chara_slot_api(monkeypatch):
