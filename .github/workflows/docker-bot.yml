@@ -1,0 +1,80 @@
+name: Build bot image
+
+# 自动打包 QQ 机器人镜像：
+# - push 到 main / 打 v* tag / 手动触发时构建；
+# - 推送到 GHCR（用内置 GITHUB_TOKEN，零配置）；
+# - 若配置了 Docker Hub 仓库密钥，同时推到 bad0rang3/maidxtool:latest；
+# - 产出一个可直接离线分发的 dist/virtualwait-bot-<sha>.tar.gz 构件。
+#
+# 可选仓库密钥（Settings -> Secrets and variables -> Actions）：
+#   DOCKERHUB_USERNAME / DOCKERHUB_TOKEN   （不配则只推 GHCR）
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub (optional)
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build image
+        run: |
+          docker build \
+            -f infra/docker/Dockerfile.bot \
+            --build-arg VERSION="${GITHUB_REF_NAME}-${GITHUB_SHA::7}" \
+            -t virtualwait-bot:latest \
+            -t virtualwait-bot:"${GITHUB_SHA::7}" \
+            .
+
+      - name: Export offline package
+        run: |
+          mkdir -p dist
+          docker save virtualwait-bot:latest | gzip > "dist/virtualwait-bot-${GITHUB_SHA::7}.tar.gz"
+          (cd dist && sha256sum ./*.tar.gz > SHA256SUMS.txt)
+
+      - name: Upload offline package
+        uses: actions/upload-artifact@v4
+        with:
+          name: virtualwait-bot-image
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS.txt
+          retention-days: 14
+
+      - name: Push to GHCR
+        run: |
+          owner="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          docker tag virtualwait-bot:latest "ghcr.io/${owner}/virtualwait-bot:latest"
+          docker tag virtualwait-bot:latest "ghcr.io/${owner}/virtualwait-bot:${GITHUB_SHA::7}"
+          docker push "ghcr.io/${owner}/virtualwait-bot:latest"
+          docker push "ghcr.io/${owner}/virtualwait-bot:${GITHUB_SHA::7}"
+
+      - name: Push to Docker Hub (optional)
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
+        run: |
+          docker tag virtualwait-bot:latest bad0rang3/maidxtool:latest
+          docker tag virtualwait-bot:latest "bad0rang3/maidxtool:${GITHUB_SHA::7}"
+          docker push bad0rang3/maidxtool:latest
+          docker push "bad0rang3/maidxtool:${GITHUB_SHA::7}"

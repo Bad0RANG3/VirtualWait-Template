@@ -111,12 +111,25 @@ docker compose -f infra/docker/docker-compose.bot.yml up -d --build
 
 > 国内网络可用 `--build-arg` 加速 pip；见 `infra/docker/Dockerfile.bot` 头部注释。
 
-若使用已打好的离线/预构建镜像（需为含内置默认参数的新版本），改用：
+若使用已打好的预构建镜像（需为含内置默认参数的新版本），两种来源：
 
-```bash
-docker load -i dist/virtualwait-qqbot-stack.1.0.0.tar.gz
+- **GHCR（CI 自动构建）**：推送到 `main` / 打 `v*` tag 时，`.github/workflows/docker-bot.yml` 会自动构建并推送。
+  ```bash
+docker pull ghcr.io/bad0rang3/virtualwait-bot:latest
+docker tag  ghcr.io/bad0rang3/virtualwait-bot:latest bad0rang3/maidxtool:latest
 docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
 ```
+- **离线 tar**：同一 workflow 会产出 `virtualwait-bot-<sha>.tar.gz` 构件（Actions → 对应 run → Artifacts，或从 `dist/` 获取），
+  ```bash
+docker load -i dist/virtualwait-bot-<sha>.tar.gz
+docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
+```
+
+自行本地打包（需已装 Docker）：
+
+```bash
+docker build -f infra/docker/Dockerfile.bot -t bad0rang3/maidxtool:latest .
+mkdir -p dist && docker save bad0rang3/maidxtool:latest | gzip > dist/virtualwait-bot-local.tar.gz
 
 2. **无需任何配置**：镜像已内置公开的 SDGB 默认参数，直接进入下一步。仅当需要覆盖机厅信息或启用队列叫号时，才在 `infra/docker/` 下新建可选 `.env`（示例）：
 
