@@ -96,7 +96,6 @@ async def login_with_token(client, http, user_id: int, token: str) -> int:
     login = await client.call_api(
         http, "UserLoginApi",
         build_login_data(user_id, token, timestamp=login_ts), user_id,
-        capture_cookie=True,
     )
     if login.get("returnCode") not in (1, 102):
         raise RuntimeError(

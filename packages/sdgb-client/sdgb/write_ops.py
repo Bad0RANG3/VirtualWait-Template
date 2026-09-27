@@ -61,7 +61,6 @@ from .payload import (
     CHARA_SLOT_COUNT,
     ITEM_INDEX_STRIDE,
     USER_ITEM_KINDS,
-    build_user_data,
 )
 from .runtime import DATA_DIR
 
@@ -133,9 +132,14 @@ def _make_sayer(progress: Progress):
         return _noop
 
     async def say(msg: str) -> None:
-        out = progress(msg)
-        if inspect.isawaitable(out):
-            await out
+        try:
+            out = progress(msg)
+            if inspect.isawaitable(out):
+                await out
+        except Exception as e:  # noqa: BLE001
+            # 进度回调只是显示层（实机踩过 TypeError 与 Windows GBK 控制台打印 emoji
+            # 抛 UnicodeEncodeError）——不能让它打断写入流程或登出收尾。
+            logger.warning("progress 回调失败: %s", e)
 
     return say
 
@@ -231,7 +235,6 @@ async def _preview_and_login(client, h, user_id: int, token: str) -> dict:
     login_resp = await client.call_api(
         h, "UserLoginApi",
         build_login_data(user_id, token, timestamp=login_ts), user_id,
-        capture_cookie=True,
     )
     rc = login_resp.get("returnCode")
     if rc not in (1, 102):
@@ -325,27 +328,39 @@ async def fetch_characters(client, h, user_id: int, token: str, cookie=None) -> 
     }
 
 
-async def fetch_chara_slots(client, h, user_id: int, token: str = "") -> tuple:
+async def fetch_chara_slots(client, h, user_id: int) -> tuple:
     """读账号当前的旅行伙伴槽位：(charaSlot, charaLockSlot)。
 
-    这两个字段只在 `GetGameKaleidxScopeApi` 的 userData 里返回（GetUserDataApi 没有），
-    所以写前的现值和写后的回查都必须走它。
-    ⚠️ 三个硬条件（机台报文 2026-09-17/25/27 全量核对：Scope 接口共调 34 次，
-    回 userData 的 11 次**无一例外紧跟在 GetUserDataApi 之后**）：
-      1. 同一会话里必须先 call 一次 `GetUserDataApi` —— 登录后直接读 Scope 只回
-         `gameKaleidxScopeList`（实机烧掉两张码验证过）；
-      2. 请求体必须是空的 `{}`（带 userId/token 同样只回 scopeList）；
-      3. 必须在 `UserLoginApi` 之后。
-    会话 cookie 由 client.cookies 自动带上。
+    这两个字段**只在** `GetGameKaleidxScopeApi` 响应的 `userData` 里出现（机台报文里
+    没有别的接口带它；`GetUserDataApi` 也没有），所以写前的现值和写后的回查都得走它。
+
+    机台报文（2026-09-17/25/27，Scope 共 34 次）实测：
+      - 请求体**永远是空的 `{}`**；
+      - 回 `userData` 的 11 次全是「会话内第 3 个请求」= `UserLoginApi →
+        GetUserDataApi → GetGameKaleidxScopeApi`，且 `GetUserDataApi` 只带
+        **`{"userId":…}`、不带 token**（登录后机台的所有读接口都只带 userId，
+        靠登录拿到的 JSESSIONID 认人）；
+      - 只回 `gameKaleidxScopeList` 的 23 次全在登录之前。
+      响应里带 `userId` 说明服务器是从**会话**里解析出用户的 —— cookie 没带上或会话
+      没绑定时，同一个 `{}` 只会拿到全区列表。
+    失败时把「有没有 cookie、两个接口各回了什么键」写进异常，好让一次实机能定位到位
+    （每次实机消耗一张二维码）。
     """
-    await client.call_api(h, "GetUserDataApi", build_user_data(user_id, token), user_id)
+    data_resp = await client.call_api(h, "GetUserDataApi", {"userId": user_id}, user_id)
     resp = await client.call_api(h, CHARA_SLOT_API_TYPE, {}, user_id)
     ud = resp.get("userData")
     if not isinstance(ud, dict):
+        # 机台会在同一会话里连着 call 两次 Scope（报文 12:14:34 / 12:14:42），
+        # 排除「第二次才带上用户态」的可能，原地重试一次。
+        resp2 = await client.call_api(h, CHARA_SLOT_API_TYPE, {}, user_id)
+        ud = resp2.get("userData")
+    if not isinstance(ud, dict):
+        cookie = getattr(client, "cookies", None) or ""
         raise RuntimeError(
-            f"{CHARA_SLOT_API_TYPE} 没返回 userData"
-            "（未登录/会话失效，或账号读不到槽位），未写入任何数据。"
-            f"响应键：{sorted(resp.keys())}"
+            f"{CHARA_SLOT_API_TYPE} 没返回 userData（未写入任何数据）。"
+            f"会话 cookie：{'已捕获 ' + str(len(cookie)) + ' 字节' if cookie else '无（登录没回 Set-Cookie）'}；"
+            f"GetUserDataApi 响应键={sorted(data_resp.keys())}；"
+            f"Scope 响应键={sorted(resp.keys())}；重试后={sorted(resp2.keys())}"
         )
     return list(ud.get("charaSlot") or []), list(ud.get("charaLockSlot") or [])
 
@@ -913,7 +928,7 @@ async def _ticket_upsert(
     UpsertUserAllApi（userChargeList 库存镜像 + 顶层内嵌 playlog）-> 完成。
 
     实测：跳过 Chargelog 时 UpsertUserAllApi 返回 0 但票据不入账（静默忽略）。
-    前提：client 已完成 UserLoginApi（capture_cookie 捕获 JSESSIONID），
+    前提：client 已完成 UserLoginApi（JSESSIONID 由 call_api 自动收集），
     login = {"loginResponse":..., "loginDateTime":...}。
     """
     from .payload import (
@@ -1655,7 +1670,7 @@ async def set_chara_slots_with_qr(
             login_date = login["loginResponse"]["lastLoginDate"]
 
             await say("读取旅行伙伴槽位与角色表…")
-            slots, lock = await fetch_chara_slots(client, h, user_id, token)
+            slots, lock = await fetch_chara_slots(client, h, user_id)
             slots = [int(i) for i in slots]
             lock = [int(i) for i in lock]
             if slot is None:
@@ -1721,7 +1736,7 @@ async def set_chara_slots_with_qr(
                 if not verify:
                     return f"✅ 已提交旅行伙伴槽位 {slot}（未回查）。"
 
-                after_slots, after_lock = await fetch_chara_slots(client, h, user_id, token)
+                after_slots, after_lock = await fetch_chara_slots(client, h, user_id)
                 after_slots = [int(i) for i in after_slots]
                 log.append(
                     f"第 {round_no} 轮回查：charaSlot {slots}→{after_slots}，"

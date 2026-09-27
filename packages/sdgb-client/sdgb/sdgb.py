@@ -7,6 +7,7 @@
 """
 import json
 import logging
+import re
 import zlib
 
 import httpx
@@ -78,14 +79,13 @@ class MaimaiClient:
         data: dict,
         userId: int,
         cookie: str = None,
-        capture_cookie: bool = False,
     ) -> dict:
         """压缩 -> 加密 -> POST，然后解密 -> 解压 -> 解析 JSON 返回。
 
         cookie: 显式传会话 cookie（登录时捕获的 "JSESSIONID=xxx"）；
                 不传则用 self.cookies。写操作（Upsert* / Upload*）必须携带，
                 否则服务器按无会话处理，写操作会被静默忽略（返回成功但未入账）。
-        capture_cookie: True 时把响应 Set-Cookie 头解析进 self.cookies（登录用）。
+        机台的 HTTP 客户端是自动收发 cookie 的，所以这里也在每个响应上收集。
         """
         ApiTypeHash = get_hash_api(ApiType)
         url = f"{self.base_url}/{ApiTypeHash}"
@@ -109,22 +109,7 @@ class MaimaiClient:
         encrypted = self.aes.encrypt(compressed)
 
         resp = await client.post(url, headers=headers, data=encrypted, timeout=15.0)
-        if capture_cookie:
-            set_cookie = resp.headers.get("set-cookie")
-            if set_cookie:
-                # 截取 "JSESSIONID=xxx" 形式的 cookie 串
-                parts = []
-                for chunk in set_cookie.split(","):
-                    chunk = chunk.strip()
-                    semi = chunk.find(";")
-                    nv = chunk[:semi] if semi > 0 else chunk
-                    if "=" in nv:
-                        parts.append(nv.strip())
-                if parts:
-                    self.cookies = "; ".join(parts)
-                    logger.info("[COOKIE] 已捕获会话 cookie（长度=%d，值不记录）", len(self.cookies))
-            else:
-                logger.info("[COOKIE] %s 未返回 Set-Cookie", ApiType)
+        self._capture_cookie(resp, ApiType)
         if resp.status_code != 200:
             # 记录服务器返回体（500 等错误的具体原因常在里面）
             logger.error(
@@ -141,6 +126,35 @@ class MaimaiClient:
             logger.info("[EMPTY-RESPONSE] %s -> treated as success", ApiType)
             return {"returnCode": 0, "_emptyResponse": True}
         return json.loads(uncompressed)
+
+    def _capture_cookie(self, resp, ApiType: str) -> None:
+        """把响应的 Set-Cookie 并进 self.cookies（按名字覆盖），值不写日志。
+
+        服务器通常在**第一个**请求上就发下 JSESSIONID，登录那次未必再发一次；只在
+        UserLoginApi 捕获会让整个会话都不带 cookie，服务器就无法把请求归到已登录用户
+        （实测：GetGameKaleidxScopeApi 因此只回全区列表，读不到 charaSlot）。
+        """
+        raw = resp.headers.get("set-cookie")
+        if not raw:
+            return
+        merged = {}
+        for nv in (self.cookies or "").split(";"):
+            nv = nv.strip()
+            if "=" in nv:
+                k, v = nv.split("=", 1)
+                merged[k.strip()] = v.strip()
+        names = []
+        # 多个 Set-Cookie 会被连成一个头，日期里也有逗号，所以按「名=值」形状切分。
+        for chunk in re.split(r",\s*(?=[A-Za-z_][A-Za-z0-9_\-]*=)", raw):
+            nv = chunk.split(";", 1)[0].strip()
+            if "=" in nv:
+                k, v = nv.split("=", 1)
+                merged[k.strip()] = v.strip()
+                names.append(k.strip())
+        if names:
+            self.cookies = "; ".join(f"{k}={v}" for k, v in merged.items())
+            logger.info("[COOKIE] %s 下发 %s（长度=%d，值不记录）",
+                        ApiType, names, len(self.cookies))
 
     # ---------------------------------------------------------
     # 高层流程
@@ -184,12 +198,11 @@ class MaimaiClient:
             except Exception as e:  # noqa: BLE001
                 logger.warning("GetUserPreviewApi 失败(可忽略): %s", type(e).__name__)
 
-            # 2) UserLogin（capture_cookie: 捕获 JSESSIONID 供写操作使用）
+            # 2) UserLogin（响应里的 JSESSIONID 由 call_api 自动收集）
             login_ts = int(_time.time())
             login_data = build_login_data(user_id, token, timestamp=login_ts)
             login_resp = await self.call_api(
                 client, "UserLoginApi", login_data, user_id,
-                capture_cookie=True,
             )
 
         return {

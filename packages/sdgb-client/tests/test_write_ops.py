@@ -317,6 +317,7 @@ class _FakeClient:
     music: list = []
     rating_rows: list = []
     maps: list = []
+    cookies: str | None = None   # 真实 client 登录前也是 None，登录后才有 JSESSIONID
     accept_maps = True      # True=全部收下；False=整行忽略；整数=服务器自己的单档幅度上限
     slots: list = []        # 服务器当前的 charaSlot
     locks: list = []        # 服务器当前的 charaLockSlot
@@ -706,29 +707,56 @@ def _chara_setup(monkeypatch, w, accept=True):
     _FakeClient.accept_chara_slot = accept
 
 
-def test_chara_slots_need_login_empty_body_and_user_data_first(monkeypatch):
-    """读槽位的三个硬条件（机台报文 34 次全量核对）：登录后 + 请求体 `{}` +
-    同一会话里紧跟在 `GetUserDataApi` 之后。少任何一条服务器只回 scopeList。"""
+def test_chara_slots_read_machine_shape(monkeypatch):
+    """读槽位按机台报文原样发：登录后 UserData 只带 userId（不带 token）、Scope 发空体；
+    第一次只回 scopeList 时原地重试一次；仍拿不到 userData 就带诊断信息中止。"""
     from sdgb import write_ops as w
 
     _chara_setup(monkeypatch, w)
     fake = _FakeClient()
-    with pytest.raises(RuntimeError, match="没返回 userData"):   # 登录前读不到
+    with pytest.raises(RuntimeError, match="没返回 userData") as bad:   # 登录前读不到
         asyncio.run(w.fetch_chara_slots(fake, None, 42))
-    # 即使 helper 自己补发了 GetUserDataApi，未登录仍然只回 scopeList
-    assert _apis() == ["GetUserDataApi", "GetGameKaleidxScopeApi"]
-    assert _FakeClient.calls[1][1] == {}                        # 请求体必须为空
+    assert _apis() == [
+        "GetUserDataApi", "GetGameKaleidxScopeApi", "GetGameKaleidxScopeApi",
+    ]
+    assert "gameKaleidxScopeList" in str(bad.value)
+    assert "登录没回 Set-Cookie" in str(bad.value)
+
     _FakeClient.logged_in = True
-    _FakeClient.calls = []
     _FakeClient.user_data_read = False
-    # 登录后 helper 会自己先读 GetUserDataApi 再读 Scope（相邻顺序由报文决定）
-    assert asyncio.run(w.fetch_chara_slots(fake, None, 42, "TOK")) == (
+    _FakeClient.calls = []
+    assert asyncio.run(w.fetch_chara_slots(fake, None, 42)) == (
         [101, 102, 103, 104, 105], [0, 0, 0, 0, 0]
     )
     assert _FakeClient.calls[-2:] == [
-        ("GetUserDataApi", {"userId": 42, "token": "TOK"}),
+        ("GetUserDataApi", {"userId": 42}),      # 登录后机台只带 userId
         (CHARA_SLOT_API_TYPE, {}),
     ]
+
+
+def test_chara_slots_second_attempt_returns_user_data(monkeypatch):
+    """机台在同一会话里会连着 call 两次 Scope：第二次才回 userData 时也要正常读到。"""
+    from sdgb import write_ops as w
+
+    _chara_setup(monkeypatch, w)
+    fake = _FakeClient()
+    _FakeClient.logged_in = True
+    _FakeClient.user_data_read = True
+    scope = {"n": 0}
+    original = fake.call_api
+
+    async def spy(h, api, data, user_id, **kw):
+        if api == CHARA_SLOT_API_TYPE:
+            scope["n"] += 1
+            if scope["n"] == 1:
+                return {"userId": user_id, "gameKaleidxScopeList": []}
+        return await original(h, api, data, user_id, **kw)
+
+    fake.call_api = spy
+    assert asyncio.run(w.fetch_chara_slots(fake, None, 42)) == (
+        [101, 102, 103, 104, 105], [0, 0, 0, 0, 0]
+    )
+    assert scope["n"] == 2
 
 
 def test_query_sends_empty_body_for_chara_slot_api(monkeypatch):
