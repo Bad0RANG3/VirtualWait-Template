@@ -101,7 +101,7 @@ python bot.py
 
 机器人镜像为**预构建、可复用**：镜像内置国服公开的 SDGB 默认参数（`settings.py`），不包含个人/机厅私有覆盖或运行数据（`settings_local.py`、`.env`、`napcat/`、QQ 登录态均不会打进镜像）；如需换机厅，用 `VW_SDGB_*` 环境变量覆盖即可。
 
-### 3.1 一键启动（推荐，从源码构建）
+### 3.1 一键启动（推荐）
 
 **无需任何配置**，一条命令即可拉起 NapCat + 机器人（镜像内置公开的 SDGB 默认参数）：
 
@@ -110,28 +110,29 @@ docker compose -f infra/docker/docker-compose.bot.yml up -d --build
 ```
 
 > 国内网络可用 `--build-arg` 加速 pip；见 `infra/docker/Dockerfile.bot` 头部注释。
+> compose 默认镜像为 `ghcr.io/bad0rang3/virtualwait-bot:latest`；本地已有镜像时可去掉 `--build` 直接 `up -d`。
 
-若使用已打好的预构建镜像（需为含内置默认参数的新版本），两种来源：
+镜像的两种预构建来源：
 
-- **GHCR（CI 自动构建）**：推送到 `main` / 打 `v*` tag 时，`.github/workflows/docker-bot.yml` 会自动构建并推送。
+- **GHCR（CI 自动构建）**：推送到 `main` / 打 `v*` tag / 手动触发时，`.github/workflows/docker-bot.yml` 自动构建并推送。
   ```bash
-docker pull ghcr.io/bad0rang3/virtualwait-bot:latest
-docker tag  ghcr.io/bad0rang3/virtualwait-bot:latest bad0rang3/maidxtool:latest
-docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
-```
-- **离线 tar**：同一 workflow 会产出 `virtualwait-bot-<sha>.tar.gz` 构件（Actions → 对应 run → Artifacts，或从 `dist/` 获取），
+  docker pull ghcr.io/bad0rang3/virtualwait-bot:latest
+  docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
+  ```
+- **离线 tar**：同一 workflow 产出 `virtualwait-bot-<sha>.tar.gz` 构件（Actions → 对应 run → Artifacts，或从 `dist/` 获取）。
   ```bash
-docker load -i dist/virtualwait-bot-<sha>.tar.gz
-docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
-```
+  docker load -i dist/virtualwait-bot-<sha>.tar.gz
+  docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
+  ```
 
 自行本地打包（需已装 Docker）：
 
 ```bash
-docker build -f infra/docker/Dockerfile.bot -t bad0rang3/maidxtool:latest .
-mkdir -p dist && docker save bad0rang3/maidxtool:latest | gzip > dist/virtualwait-bot-local.tar.gz
+docker build -f infra/docker/Dockerfile.bot -t ghcr.io/bad0rang3/virtualwait-bot:latest .
+mkdir -p dist && docker save ghcr.io/bad0rang3/virtualwait-bot:latest | gzip > dist/virtualwait-bot-local.tar.gz
+```
 
-2. **无需任何配置**：镜像已内置公开的 SDGB 默认参数，直接进入下一步。仅当需要覆盖机厅信息或启用队列叫号时，才在 `infra/docker/` 下新建可选 `.env`（示例）：
+1. **无需任何配置**：镜像已内置公开的 SDGB 默认参数，直接进入下一步。仅当需要覆盖机厅信息或启用队列叫号时，才在 `infra/docker/` 下新建可选 `.env`（示例）：
 
 ```bash
 cd infra/docker
@@ -148,13 +149,13 @@ VW_SDGB_KEYCHIP_ID=A63E-01C28055905
 EOF
 ```
 
-3. 启动（`--no-build` 表示直接使用已加载的预构建镜像，不现场构建）：
+2. 启动（首次自动构建；已拉取/加载镜像时加 `--no-build`）：
 
 ```bash
-docker compose -f infra/docker/docker-compose.bot.yml up -d --no-build
+docker compose -f infra/docker/docker-compose.bot.yml up -d --build
 ```
 
-4. 扫码登录机器人 QQ（唯一手动步骤）：
+3. 扫码登录机器人 QQ（唯一手动步骤）：
 
 ```bash
 docker compose -f infra/docker/docker-compose.bot.yml logs napcat | grep -E "WebUi (Token|User Panel Url)"
@@ -170,7 +171,7 @@ docker compose -f infra/docker/docker-compose.bot.yml logs napcat | grep -E "Web
 docker compose -f infra/docker/docker-compose.bot.yml up -d --build
 ```
 
-机厅密钥同样通过 `infra/docker/.env` 的环境变量注入；镜像构建上下文有白名单式 `.dockerignore`，**不会**包含本地密钥/运行数据。如需使用自定义镜像仓库或标签：
+SDGB 公开默认参数已内置；换机厅时通过 `infra/docker/.env` 的 `VW_SDGB_*` 覆盖。镜像构建上下文有白名单式 `.dockerignore`，**不会**包含个人/机厅私有覆盖或运行数据。如需使用自定义镜像仓库或标签：
 
 ```bash
 VIRTUALWAIT_BOT_IMAGE=ghcr.io/你的账号/virtualwait-bot:1.0.0 \
@@ -190,7 +191,7 @@ NoneBot 日志出现 `OneBot V11 | Bot <QQ号> connected` 即链路打通。
 
 - 改 `infra/docker/.env` 后重启：`docker compose -f infra/docker/docker-compose.bot.yml up -d`
 - `docker compose -f infra/docker/docker-compose.bot.yml down`：停止（保留 QQ 登录态与数据卷）
-- 升级镜像：`docker load -i dist/virtualwait-qqbot-stack.<新版本>.tar.gz && docker compose -f infra/docker/docker-compose.bot.yml up -d`
+- 升级镜像：合并到 `main` / 打 tag 后重新 `docker compose -f infra/docker/docker-compose.bot.yml pull && docker compose -f infra/docker/docker-compose.bot.yml up -d`（离线包则 `docker load -i dist/virtualwait-bot-<sha>.tar.gz` 后 `up -d`）
 - 从源码升级：`git pull && docker compose -f infra/docker/docker-compose.bot.yml up -d --build`
 
 QQ 登录态、NapCat 配置与 B50 缓存分别保存在命名卷 `napcat_qq`、`napcat_config`、`b50_data` 中；`docker compose -f infra/docker/docker-compose.bot.yml down -v` 会删除它们，需重新登录。

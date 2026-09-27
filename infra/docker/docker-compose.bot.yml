@@ -22,10 +22,11 @@ services:
       - napcat_config:/app/napcat/config
 
   virtualwait-bot:
-    # 默认使用 Docker Hub 预构建镜像 bad0rang3/maidxtool:latest（docker pull 后免构建）；
+    # 默认使用 CI 自动构建的 GHCR 镜像（开箱即用，含内置 SDGB 默认参数）；
     # 源码部署或改代码时保留 build 段，执行 docker compose up -d --build。
-    # 换用离线包镜像或其它仓库时用 VIRTUALWAIT_BOT_IMAGE 覆盖（如 virtualwait-bot:latest）。
-    image: ${VIRTUALWAIT_BOT_IMAGE:-bad0rang3/maidxtool:latest}
+    # 换用 Docker Hub / 离线包 / 其它仓库时用 VIRTUALWAIT_BOT_IMAGE 覆盖
+    # （如 bad0rang3/maidxtool:latest 或 virtualwait-bot:latest）。
+    image: ${VIRTUALWAIT_BOT_IMAGE:-ghcr.io/bad0rang3/virtualwait-bot:latest}
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.bot
