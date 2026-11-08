@@ -73,7 +73,13 @@ jobs:
           npm run db:verify -- --input "$backup_dir/virtualwait.db"
           npm audit --omit=dev --package-lock-only --audit-level=high
       - name: Verify systemd templates
-        run: systemd-analyze verify infra/server/systemd/virtualwait-*.service infra/server/systemd/virtualwait-*.timer
+        run: |
+          # The units run `npm` from /usr/bin, which is where a normal Ubuntu
+          # install puts it. GitHub's runners use a versioned toolcache path, so
+          # systemd-analyze would reject the missing ExecStart binary. Link the
+          # runner's npm to the production path instead of weakening the units.
+          if [ ! -e /usr/bin/npm ]; then sudo ln -s "$(command -v npm)" /usr/bin/npm; fi
+          systemd-analyze verify infra/server/systemd/virtualwait-*.service infra/server/systemd/virtualwait-*.timer
       - name: Verify server environment examples
         run: node infra/server/scripts/verify-server-env-examples.mjs
       - name: Verify Nginx template
