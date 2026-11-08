@@ -14,6 +14,29 @@ test("same-origin check accepts the dev server network host header", () => {
   assert.doesNotThrow(() => assertSameOrigin(req));
 });
 
+test("production never trusts the request Host header", () => {
+  // CI exports APP_BASE_URL for the whole job; production must ignore it here
+  // and keep comparing against the pinned base URL only. `NODE_ENV` is typed
+  // read-only by Next, so mutate the plain mutable view of the environment.
+  const mutableEnv = process.env as Record<string, string | undefined>;
+  const previousNodeEnv = mutableEnv.NODE_ENV;
+  mutableEnv.NODE_ENV = "production";
+  try {
+    const req = new Request("http://localhost:3000/api/auth/login", {
+      method: "POST",
+      headers: {
+        Origin: "http://192.168.1.28:3000",
+        Host: "192.168.1.28:3000",
+      },
+    });
+
+    assert.throws(() => assertSameOrigin(req), /CSRF_ORIGIN_INVALID/);
+  } finally {
+    if (previousNodeEnv === undefined) delete mutableEnv.NODE_ENV;
+    else mutableEnv.NODE_ENV = previousNodeEnv;
+  }
+});
+
 test("same-origin check still rejects mismatched origins", () => {
   const req = new Request("http://localhost:3000/api/auth/login", {
     method: "POST",

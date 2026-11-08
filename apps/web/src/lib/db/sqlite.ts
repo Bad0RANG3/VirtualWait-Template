@@ -43,6 +43,11 @@ export class Db {
     this.raw.exec(`PRAGMA ${cleaned}`);
   }
 
+  /** Close the connection. The last SQLite connection also removes WAL files. */
+  close() {
+    this.raw.close();
+  }
+
   /**
    * Run `fn` inside a transaction.
    *

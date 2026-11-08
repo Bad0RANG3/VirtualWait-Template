@@ -58,7 +58,7 @@ export async function POST(req: Request) {
     return jsonOk({ user });
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return jsonError("INVALID_REQUEST", err.errors[0]?.message || "参数无效");
+      return jsonError("INVALID_REQUEST", err.issues[0]?.message || "参数无效");
     }
     return mapServiceError(err);
   }

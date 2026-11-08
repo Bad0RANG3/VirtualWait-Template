@@ -137,9 +137,11 @@ export function assertSameOrigin(req: Request): void {
 
   // In `next dev`, Request.url can be normalized to localhost even when the
   // browser is using the printed Network URL such as http://192.168.x.x:3000.
-  // Production has APP_BASE_URL pinned, but local development should accept the
-  // actual Host header so phones/tablets on the LAN can exercise the UI.
-  if (process.env.NODE_ENV !== "production" && !env.appBaseUrl) {
+  // Production pins APP_BASE_URL behind a proxy, but non-production traffic
+  // should accept the actual Host header (whatever APP_BASE_URL says) so
+  // phones/tablets on the LAN can exercise the UI. A cross-site page cannot
+  // forge Host through the browser, so this does not weaken CSRF protection.
+  if (process.env.NODE_ENV !== "production") {
     const hostOrigin = requestHostOrigin(req);
     if (hostOrigin) allowedOrigins.add(hostOrigin);
   }
@@ -263,7 +265,7 @@ export function withUser<
       if (err instanceof (await import("zod")).z.ZodError) {
         return jsonError(
           "INVALID_REQUEST",
-          (err as import("zod").ZodError).errors[0]?.message || "参数无效",
+          (err as import("zod").ZodError).issues[0]?.message || "参数无效",
         );
       }
       return mapServiceError(err);
@@ -292,7 +294,7 @@ export function withAdmin<T = unknown>(
       if (err instanceof (await import("zod")).z.ZodError) {
         return jsonError(
           "INVALID_REQUEST",
-          (err as import("zod").ZodError).errors[0]?.message || "参数无效",
+          (err as import("zod").ZodError).issues[0]?.message || "参数无效",
         );
       }
       return mapServiceError(err);

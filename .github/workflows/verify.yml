@@ -68,6 +68,7 @@ jobs:
           npm run build
           backup_dir=$(mktemp -d)
           trap 'rm -rf "$backup_dir"' EXIT
+          VIRTUALWAIT_DATA_DIR="$backup_dir/data" npm run db:init
           VIRTUALWAIT_DATA_DIR="$backup_dir/data" npm run db:backup -- --output "$backup_dir/virtualwait.db"
           npm run db:verify -- --input "$backup_dir/virtualwait.db"
           npm audit --omit=dev --package-lock-only --audit-level=high
