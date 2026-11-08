@@ -8,7 +8,7 @@ const REQUIRED_TABLES = [
   "app_user",
   "queue_entry",
   "audit_event",
-  "join_attempt",
+  "session",
 ] as const;
 
 function argument(name: string) {
@@ -30,7 +30,12 @@ const stat = fs.statSync(input);
 if (!stat.isFile()) {
   throw new Error("Backup input must be a regular file");
 }
-if ((stat.mode & 0o077) !== 0) {
+if (stat.size === 0) {
+  throw new Error("Backup input must not be empty");
+}
+// POSIX mode bits are meaningless on Windows (ACLs govern access there), so the
+// group/other check only applies on platforms that report them.
+if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) {
   throw new Error("Backup input permissions must not allow group or other access");
 }
 

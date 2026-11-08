@@ -1,6 +1,9 @@
 /**
  * 环境变量集中解析与校验：类型化 `env` 对象、生产环境不安全密钥检查
  * （占位符/弱密钥/明文 https 决策）。
+ *
+ * 系统只与自己的 SQLite 通信：没有 Gateway、没有上游身份 provider，
+ * 因此这里不再有任何外部服务地址与配对密钥。
  */
 function num(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -10,8 +13,6 @@ function num(name: string, fallback: number): number {
 }
 
 const DEV_SESSION_SECRET = "dev-session-secret-change-me";
-const DEV_PUBLIC_ID_SECRET = "dev-public-id-secret-change-me";
-const DEV_GATEWAY_SECRET = "dev-gateway-secret";
 
 function str(name: string, fallback = ""): string {
   return process.env[name] || fallback;
@@ -75,67 +76,23 @@ function requireProductionAppUrl(name: string, value: string) {
   }
 }
 
-function requireProductionGatewayUrl(value: string) {
-  if (process.env.NODE_ENV !== "production") return;
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error(
-      "GATEWAY_BASE_URL must be a valid HTTPS URL or loopback HTTP URL in production",
-    );
-  }
-  if (url.protocol === "https:" && !url.username && !url.password) return;
-
-  // The supported self-hosted topology keeps the Gateway on the same host,
-  // bound to loopback only. HTTP is safe on that private hop; it must never
-  // become a general remote-Gateway exception.
-  const isLoopback = url.hostname === "127.0.0.1" || url.hostname === "[::1]";
-  if (url.protocol === "http:" && isLoopback && !url.username && !url.password)
-    return;
-
-  throw new Error(
-    "GATEWAY_BASE_URL must use HTTPS unless it is an unauthenticated http://127.0.0.1 or http://[::1] URL in production",
-  );
-}
-
-const rawGatewayMode = process.env.GATEWAY_MODE || "remote";
-if (rawGatewayMode === "mock") {
-  throw new Error(
-    "GATEWAY_MODE=mock is no longer supported. Run services/sdgb-gateway with VW_GATEWAY_PROVIDER=mock and set GATEWAY_MODE=remote so Web uses the signed login interface.",
-  );
-}
-if (rawGatewayMode !== "remote") {
-  throw new Error('GATEWAY_MODE must be "remote"');
-}
-const gatewayMode = "remote" as const;
 const sessionSecret = str("SESSION_SECRET", DEV_SESSION_SECRET);
-const publicIdHmacSecret = str("PUBLIC_ID_HMAC_SECRET", DEV_PUBLIC_ID_SECRET);
-const gatewaySharedSecret = str("GATEWAY_SHARED_SECRET", DEV_GATEWAY_SECRET);
 const adminApiToken = str("ADMIN_API_TOKEN");
 const botApiToken = str("BOT_API_TOKEN");
 const appBaseUrl = str("APP_BASE_URL").replace(/\/$/, "");
-const gatewayBaseUrl = str("GATEWAY_BASE_URL", "http://127.0.0.1:8787");
 const trustProxyHeaders = bool(
   "TRUST_PROXY_HEADERS",
   process.env.NODE_ENV !== "production",
 );
 const sessionMaxAgeDays = num("SESSION_MAX_AGE_DAYS", 30);
+const checkinWindowSec = num("CHECKIN_WINDOW_SEC", 600);
+// Additional *previous* windows a submitted code stays valid for (0 disables).
+const parsedCheckinGrace = Number(process.env.CHECKIN_GRACE_WINDOWS);
+const checkinGraceWindows = Number.isFinite(parsedCheckinGrace)
+  ? Math.max(0, Math.floor(parsedCheckinGrace))
+  : 1;
 
 requireProductionSecret("SESSION_SECRET", sessionSecret, DEV_SESSION_SECRET);
-requireProductionSecret(
-  "PUBLIC_ID_HMAC_SECRET",
-  publicIdHmacSecret,
-  DEV_PUBLIC_ID_SECRET,
-);
-if (process.env.NODE_ENV === "production" && gatewayMode !== "remote") {
-  throw new Error("GATEWAY_MODE must be remote in production");
-}
-requireProductionSecret(
-  "GATEWAY_SHARED_SECRET",
-  gatewaySharedSecret,
-  DEV_GATEWAY_SECRET,
-);
 if (
   process.env.NODE_ENV === "production" &&
   isUnsafeProductionSecret(adminApiToken, "")
@@ -151,58 +108,61 @@ if (process.env.NODE_ENV === "production") {
       "TRUST_PROXY_HEADERS=true is required in production behind a proxy that overwrites client IP headers",
     );
   }
-  requireProductionGatewayUrl(gatewayBaseUrl);
 }
 
 export const env = {
   sessionSecret,
   /** Persistent user session lifetime in days. */
   sessionMaxAgeDays,
-  publicIdHmacSecret,
-  gatewayMode,
-  gatewayBaseUrl,
-  gatewayKeyId: process.env.GATEWAY_KEY_ID || "template-web-1",
-  gatewaySharedSecret,
   adminApiToken,
   /** Separate bearer for QQ bot (services/bot) machine-to-machine queue APIs. Empty disables /api/bot/*. */
   botApiToken,
   /** Catalog pulls per minute for BOT_API_TOKEN. */
   botCatalogRateLimit: num("BOT_CATALOG_RATE_LIMIT", 20),
-  /** Queue detail pulls per minute for BOT_API_TOKEN. */
-  botQueueRateLimit: num("BOT_QUEUE_RATE_LIMIT", 120),
+  /** Queue detail pulls per minute for BOT_API_TOKEN (budget for polling several hot machines). */
+  botQueueRateLimit: num("BOT_QUEUE_RATE_LIMIT", 240),
   trustProxyHeaders,
   playingTimeoutSec: num("PLAYING_TIMEOUT_SEC", 1500),
   /** Seconds the head group has to confirm onto a free machine. */
   headConfirmTimeoutSec: num("HEAD_CONFIRM_TIMEOUT_SEC", 180),
-  /** Max concurrent maimai QR verifications (anti-abuse). */
-  qrMaxConcurrent: num("QR_MAX_CONCURRENT", 3),
-  /** Max QR login attempts per IP per window. */
-  qrLoginIpLimit: num("QR_LOGIN_IP_LIMIT", 8),
-  qrLoginIpWindowSec: num("QR_LOGIN_IP_WINDOW_SEC", 300),
-  /** Global QR login attempts per window. */
-  qrLoginGlobalLimit: num("QR_LOGIN_GLOBAL_LIMIT", 40),
-  qrLoginGlobalWindowSec: num("QR_LOGIN_GLOBAL_WINDOW_SEC", 60),
-  /** Per-IP polling limit for an in-flight remote verification job. */
-  authAttemptPollLimit: num("AUTH_ATTEMPT_POLL_LIMIT", 30),
-  authAttemptPollWindowSec: num("AUTH_ATTEMPT_POLL_WINDOW_SEC", 60),
+  /** Set false to make the queue usable without a bound QQ (bot @ is then skipped). */
+  requireQqForQueue: bool("REQUIRE_QQ_FOR_QUEUE", true),
+  /** Set false to close self-service registration; operators then use `npm run account:create`. */
+  registrationEnabled: bool("REGISTRATION_ENABLED", true),
+  /** Require a live venue check-in code when registering a new account. */
+  checkinRequired: bool("CHECKIN_REQUIRED", true),
+  /** Rotation period of a venue check-in code, in seconds. */
+  checkinWindowSec,
+  /** How many previous windows a submitted check-in code stays valid. */
+  checkinGraceWindows,
+  /** Registrations allowed per IP per window. */
+  registerIpLimit: num("REGISTER_IP_LIMIT", 5),
+  registerIpWindowSec: num("REGISTER_IP_WINDOW_SEC", 3600),
+  /** Global registration cap per window (defends against distributed sign-ups). */
+  registerGlobalLimit: num("REGISTER_GLOBAL_LIMIT", 40),
+  registerGlobalWindowSec: num("REGISTER_GLOBAL_WINDOW_SEC", 3600),
+  /** Password login attempts per IP per window. */
+  loginIpLimit: num("LOGIN_IP_LIMIT", 10),
+  loginIpWindowSec: num("LOGIN_IP_WINDOW_SEC", 300),
+  /** Password login attempts per account per window. */
+  loginAccountLimit: num("LOGIN_ACCOUNT_LIMIT", 8),
+  loginAccountWindowSec: num("LOGIN_ACCOUNT_WINDOW_SEC", 300),
   /** Frequency for the standalone queue/temporary-data maintenance process. */
   maintenanceIntervalSec: num("MAINTENANCE_INTERVAL_SEC", 15),
-  /** Retain expired verification attempt metadata for this long before removal. */
-  transientDataRetentionSec: num("TRANSIENT_DATA_RETENTION_SEC", 86_400),
-  /** Retain inactive fixed-window rate-limit counters before maintenance removes them. */
+  /** SQLite busy handler: how long a writer waits for a lock (web + maintenance share the file). */
+  dbBusyTimeoutMs: num("DB_BUSY_TIMEOUT_MS", 5_000),
+  /** Retain inactive rate-limit counters before maintenance removes them. */
   rateLimitBucketRetentionSec: num("RATE_LIMIT_BUCKET_RETENTION_SEC", 3_600),
-  /** Max different maimai accounts one client IP may bind per Shanghai day. */
+  /** Max different accounts one client IP may register per Shanghai day. */
   ipAccountQuotaPerDay: num("IP_ACCOUNT_QUOTA_PER_DAY", 5),
   /** Remove expired per-day IP/account bindings after this many Shanghai calendar days. */
   ipBindingRetentionDays: num("IP_BINDING_RETENTION_DAYS", 2),
-  /** Scrub stale SDGB profile/IP metadata for inactive accounts after this many days. */
-  profileDataRetentionDays: num("PROFILE_DATA_RETENTION_DAYS", 180),
+  /** Scrub stale last-login IP/day metadata for inactive accounts after this many days. */
+  loginMetadataRetentionDays: num("LOGIN_METADATA_RETENTION_DAYS", 180),
   /** Remove terminal queue/party history after this many days. */
   queueHistoryRetentionDays: num("QUEUE_HISTORY_RETENTION_DAYS", 180),
   /** Remove audit events after this many days. */
   auditEventRetentionDays: num("AUDIT_EVENT_RETENTION_DAYS", 365),
-  /** Remote gateway fetch timeout. */
-  gatewayTimeoutMs: num("GATEWAY_TIMEOUT_MS", 15_000),
   /** 站点对外 origin，例如 https://wait.example.com 或 http://wait.example.com */
   appBaseUrl,
   /** Whether auth cookies should require HTTPS transport. */

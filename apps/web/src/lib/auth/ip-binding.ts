@@ -4,16 +4,20 @@ import { env } from "../env";
 import { shanghaiDayKey } from "./time";
 
 /**
- * One client IP may bind at most `IP_ACCOUNT_QUOTA_PER_DAY` different maimai
- * accounts per Shanghai calendar day. Re-binding an already-bound account is
- * always allowed. The quota (instead of a hard single-account limit) keeps
- * shared venue Wi-Fi / NAT usable while still capping multi-account abuse.
+ * One client IP may **register** at most `IP_ACCOUNT_QUOTA_PER_DAY` accounts per
+ * Shanghai calendar day. The quota deliberately applies to account creation
+ * only: venue Wi-Fi / NAT serves many players, so gating daily logins on the
+ * same counter would lock regulars out. Registration is where a single device
+ * could otherwise mint unlimited identities.
+ *
+ * `ipHash` is always a keyed hash of the client address, so when the address
+ * cannot be determined every such client hashes the literal `"unknown"` and
+ * shares one conservative bucket. That is intentional: exempting
+ * unidentifiable clients would hand out unlimited accounts whenever the
+ * reverse proxy is misconfigured.
  */
 export function assertIpCanBindUser(ipHash: string, userId: string): void {
-  if (!ipHash || ipHash === "unknown") {
-    // still allow login but skip exclusive binding enforcement for unknown IPs
-    return;
-  }
+  if (!ipHash) return;
   const db = getDb();
   const day = shanghaiDayKey();
   const existing = db
@@ -27,7 +31,7 @@ export function assertIpCanBindUser(ipHash: string, userId: string): void {
 }
 
 export function bindIpToUser(ipHash: string, userId: string): void {
-  if (!ipHash || ipHash === "unknown") return;
+  if (!ipHash) return;
   const db = getDb();
   const day = shanghaiDayKey();
   const now = nowIso();
@@ -52,9 +56,17 @@ export function bindIpToUser(ipHash: string, userId: string): void {
          ) < ?`,
     )
     .run(
-      ipHash, day, userId, now, now,
-      ipHash, day, userId,
-      ipHash, day, env.ipAccountQuotaPerDay,
+      ipHash,
+      day,
+      userId,
+      now,
+      now,
+      ipHash,
+      day,
+      userId,
+      ipHash,
+      day,
+      env.ipAccountQuotaPerDay,
     );
   if ((inserted.changes ?? 0) === 0) {
     // Either already bound (re-binding is always allowed) or the quota
@@ -67,7 +79,19 @@ export function bindIpToUser(ipHash: string, userId: string): void {
     if (!bound) throw new ServiceError("IP_ACCOUNT_BOUND");
   }
 
+  recordUserLogin(ipHash, userId);
+}
+
+/**
+ * Record the last login origin for an existing account.
+ *
+ * Unlike `bindIpToUser` this does not consume the daily registration quota.
+ */
+export function recordUserLogin(ipHash: string, userId: string): void {
+  const db = getDb();
   db.prepare(
-    `UPDATE app_user SET last_login_ip_hash = ?, last_login_day = ?, updated_at = ? WHERE id = ?`
-  ).run(ipHash, day, now, userId);
+    `UPDATE app_user
+     SET last_login_ip_hash = ?, last_login_day = ?, updated_at = ?
+     WHERE id = ?`,
+  ).run(ipHash, shanghaiDayKey(), nowIso(), userId);
 }

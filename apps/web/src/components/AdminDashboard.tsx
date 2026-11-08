@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { minutesToTimeInput, parseTimeToMinutes } from "@/lib/time/hours";
 import type { AdminAuditEvent, AdminEntryView, AdminQueueView, AdminTimeouts } from "@/lib/types";
 import type { MachineMeta, VenueMeta } from "@/lib/settings/venue-meta";
+import type { VenueCheckinCode } from "@/lib/settings/checkin-shared";
 
 import { AdminTimeoutSettings } from "./admin/AdminTimeoutSettings";
 import { AdminVenueEditor, makeVenueDrafts, type VenueDraft } from "./admin/AdminVenueEditor";
@@ -12,9 +13,10 @@ import { AdminMachineCoinEditor } from "./admin/AdminMachineCoinEditor";
 import { AdminQueueControls } from "./admin/AdminQueueControls";
 import { AdminEntryActions } from "./admin/AdminEntryActions";
 import { AdminAuditLog } from "./admin/AdminAuditLog";
+import { AdminCheckinCodes } from "./admin/AdminCheckinCodes";
 
 export function AdminDashboard({
-  queues, events, entries, timeouts, venues, machines,
+  queues, events, entries, timeouts, venues, machines, checkinCodes, serverNowMs,
 }: {
   queues: AdminQueueView[];
   events: AdminAuditEvent[];
@@ -22,6 +24,8 @@ export function AdminDashboard({
   timeouts: AdminTimeouts;
   venues: VenueMeta[];
   machines: MachineMeta[];
+  checkinCodes: VenueCheckinCode[];
+  serverNowMs: number;
 }) {
   const router = useRouter();
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -119,6 +123,8 @@ export function AdminDashboard({
 
       <AdminTimeoutSettings playingMin={playingMin} headMin={headMin} busy={busyKey === "timeouts"}
         onPlayingMin={setPlayingMin} onHeadMin={setHeadMin} onSave={saveTimeouts} />
+
+      <AdminCheckinCodes initial={checkinCodes} initialServerNowMs={serverNowMs} />
 
       <AdminVenueEditor venues={venues} drafts={venueDrafts} busyKey={busyKey}
         onPatch={(id, p) => setVenueDrafts((prev) => ({ ...prev, [id]: { ...prev[id], ...p } }))}

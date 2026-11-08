@@ -10,7 +10,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { countActiveEntriesByMachine } from "@/lib/queue/service";
 import { isVenueOpenNow } from "@/lib/settings";
 import { LocationPicker } from "@/components/LocationPicker";
-import { ArrowRight, QrCode } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 export default async function HomePage() {
   const user = await getSessionUser();
@@ -37,10 +37,9 @@ export default async function HomePage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {user?.bound && (
-              <Link className="btn-ghost" href="/bind">
-                <QrCode className="h-4 w-4" />
-                刷新
+            {!user && (
+              <Link className="btn-primary" href="/login">
+                登录 / 注册
               </Link>
             )}
           </div>

@@ -17,10 +17,27 @@ export function migrate(db: Db) {
     }
   }
 
-  _ensureWechatPasswordNullable(db);
+  _migrateLocalAccountSchema(db);
   _removeOnSiteCallArtifacts(db);
   _ensureSecurityTables(db);
   _ensureIpDayBindingQuota(db);
+  // Must run last: it indexes `queue_entry.party_id`, a column that only exists
+  // after MIGRATIONS_SQL (and after the legacy table rebuild) has run.
+  _ensureHotPathIndexes(db);
+}
+
+/**
+ * Indexes for the queue/audit/session hot paths.
+ *
+ * Runs after the migrations and legacy rebuilds so every indexed column exists,
+ * and re-creates the indexes that a legacy `queue_entry` rebuild dropped.
+ */
+function _ensureHotPathIndexes(db: Db) {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS queue_entry_party_idx ON queue_entry (party_id);
+    CREATE INDEX IF NOT EXISTS audit_event_created_idx ON audit_event (created_at);
+    CREATE INDEX IF NOT EXISTS session_issued_idx ON session (issued_at_ms);
+  `);
 }
 
 // ---------------------------------------------------------------------------
@@ -46,12 +63,6 @@ function _ensureSecurityTables(db: Db) {
       key TEXT PRIMARY KEY, window_start INTEGER NOT NULL,
       count INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS qr_concurrency_slot (
-      id TEXT PRIMARY KEY, created_at_ms INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS completion_token (
-      id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL
-    );
     CREATE TABLE IF NOT EXISTS session (
       id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES app_user(id),
       ip_hash TEXT NOT NULL, issued_at_ms INTEGER NOT NULL, revoked_at_ms INTEGER
@@ -59,7 +70,74 @@ function _ensureSecurityTables(db: Db) {
     -- Every session query hits the primary key; the old (user_id) index was
     -- never used. Drop it so existing databases converge with new installs.
     DROP INDEX IF EXISTS idx_session_user;
+    -- Identity tables from the former QR/Gateway login flow are gone.
+    DROP TABLE IF EXISTS completion_token;
+    DROP TABLE IF EXISTS qr_concurrency_slot;
+    DROP TABLE IF EXISTS join_attempt;
   `);
+}
+
+/**
+ * Rebuild databases whose `app_user` table still carries the removed
+ * external-scan identity columns (openid, profile rating/title, ...).
+ *
+ * Legacy accounts have no local password, so they cannot be carried over:
+ * players re-register with a username, password and a venue check-in code.
+ * Queue history and sessions that referenced those accounts are removed in the
+ * same transaction so foreign keys stay consistent.  Release notes for
+ * operators are in docs/DEPLOYMENT.md.
+ */
+function _migrateLocalAccountSchema(db: Db) {
+  const sql = _tableSql(db, "app_user");
+  if (!sql) return;
+  const hasLocalCredentialColumns =
+    /\busername\b/i.test(sql) &&
+    /\bpassword_algo\b/i.test(sql) &&
+    !/\bwechat_openid\b/i.test(sql);
+  if (hasLocalCredentialColumns) return;
+
+  db.pragma("foreign_keys = OFF");
+  db.exec("BEGIN");
+  try {
+    db.exec(`
+      DELETE FROM session;
+      DELETE FROM queue_entry;
+      DELETE FROM queue_party;
+      DELETE FROM ip_day_binding;
+      DROP TABLE IF EXISTS completion_token;
+      DROP TABLE IF EXISTS qr_concurrency_slot;
+      DROP TABLE IF EXISTS join_attempt;
+
+      CREATE TABLE app_user__new (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        nickname TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        password_hash TEXT NOT NULL,
+        password_salt TEXT NOT NULL,
+        password_algo TEXT NOT NULL,
+        qq TEXT UNIQUE,
+        checkin_venue_id TEXT REFERENCES venue(id),
+        registered_at TEXT NOT NULL,
+        last_login_ip_hash TEXT,
+        last_login_day TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      DROP TABLE app_user;
+      ALTER TABLE app_user__new RENAME TO app_user;
+    `);
+    db.exec("COMMIT");
+  } catch (err) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
 }
 
 /**
@@ -75,7 +153,8 @@ function _ensureSecurityTables(db: Db) {
 function _ensureIpDayBindingQuota(db: Db) {
   const sql = _tableSql(db, "ip_day_binding");
   if (!sql) return;
-  const isLegacy = /PRIMARY\s+KEY\s*\(\s*ip_hash\s*,\s*day_key\s*\)/i.test(sql) &&
+  const isLegacy =
+    /PRIMARY\s+KEY\s*\(\s*ip_hash\s*,\s*day_key\s*\)/i.test(sql) &&
     !/PRIMARY\s+KEY\s*\(\s*ip_hash\s*,\s*day_key\s*,\s*user_id\s*\)/i.test(sql);
   if (!isLegacy) return;
 
@@ -83,73 +162,23 @@ function _ensureIpDayBindingQuota(db: Db) {
   db.exec("BEGIN");
   try {
     db.exec(`
+      DELETE FROM ip_day_binding;
       CREATE TABLE ip_day_binding__new (
         ip_hash TEXT NOT NULL, day_key TEXT NOT NULL,
         user_id TEXT NOT NULL REFERENCES app_user(id),
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         PRIMARY KEY (ip_hash, day_key, user_id)
       );
-      INSERT INTO ip_day_binding__new (ip_hash, day_key, user_id, created_at, updated_at)
-        SELECT ip_hash, day_key, user_id, created_at, updated_at FROM ip_day_binding;
       DROP TABLE ip_day_binding;
       ALTER TABLE ip_day_binding__new RENAME TO ip_day_binding;
     `);
     db.exec("COMMIT");
   } catch (err) {
-    try { db.exec("ROLLBACK"); } catch { /* ignore */ }
-    throw err;
-  } finally {
-    db.pragma("foreign_keys = ON");
-  }
-}
-
-function _ensureWechatPasswordNullable(db: Db) {
-  const sql = _tableSql(db, "app_user");
-  if (!sql) return;
-  const needsRebuild =
-    /password_hash\s+TEXT\s+NOT\s+NULL/i.test(sql) ||
-    /password_salt\s+TEXT\s+NOT\s+NULL/i.test(sql);
-  if (!needsRebuild) return;
-
-  db.pragma("foreign_keys = OFF");
-  db.exec("BEGIN");
-  try {
-    db.exec(`
-      CREATE TABLE app_user__new (
-        id TEXT PRIMARY KEY, nickname TEXT NOT NULL UNIQUE,
-        password_hash TEXT, password_salt TEXT,
-        wechat_openid TEXT UNIQUE, wechat_unionid TEXT, avatar_url TEXT,
-        sdgb_identity_hash TEXT UNIQUE, sdgb_user_id_cipher TEXT,
-        display_name TEXT, rating INTEGER,
-        show_rating_public INTEGER NOT NULL DEFAULT 1,
-        title TEXT, icon_url TEXT, profile_snapshot TEXT, bound_at TEXT,
-        last_login_ip_hash TEXT, last_login_day TEXT, qq TEXT UNIQUE,
-        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-      );
-    `);
-
-    const cols = db.prepare(`PRAGMA table_info(app_user)`).all() as Array<{ name: string }>;
-    const existing = new Set(cols.map((c) => c.name));
-    const wanted = [
-      "id", "nickname", "password_hash", "password_salt", "wechat_openid",
-      "wechat_unionid", "avatar_url", "sdgb_identity_hash", "sdgb_user_id_cipher",
-      "display_name", "rating", "show_rating_public", "title", "icon_url",
-      "profile_snapshot", "bound_at", "last_login_ip_hash", "last_login_day",
-      "qq", "created_at", "updated_at",
-    ];
-    const selectList = wanted
-      .map((c) => (existing.has(c) ? c : c === "show_rating_public" ? `1 AS ${c}` : `NULL AS ${c}`))
-      .join(", ");
-
-    db.exec(
-      `INSERT INTO app_user__new (${wanted.join(", ")})
-       SELECT ${selectList} FROM app_user`
-    );
-    db.exec(`DROP TABLE app_user`);
-    db.exec(`ALTER TABLE app_user__new RENAME TO app_user`);
-    db.exec("COMMIT");
-  } catch (err) {
-    try { db.exec("ROLLBACK"); } catch { /* ignore */ }
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      /* ignore */
+    }
     throw err;
   } finally {
     db.pragma("foreign_keys = ON");
@@ -162,7 +191,9 @@ function _removeOnSiteCallArtifacts(db: Db) {
   const needsRebuild =
     /\bCALLED\b|called_at|no_show_count/i.test(queueEntrySql) ||
     /called_timeout_sec/i.test(queueSql);
-  const hasSwapTables = Boolean(_tableSql(db, "swap_request") || _tableSql(db, "swap_vote"));
+  const hasSwapTables = Boolean(
+    _tableSql(db, "swap_request") || _tableSql(db, "swap_vote"),
+  );
   if (!needsRebuild && !hasSwapTables) return;
 
   db.pragma("foreign_keys = OFF");
@@ -171,14 +202,26 @@ function _removeOnSiteCallArtifacts(db: Db) {
     db.exec("DROP TABLE IF EXISTS swap_vote; DROP TABLE IF EXISTS swap_request;");
     if (needsRebuild) {
       const queueCols = new Set(
-        (db.prepare(`PRAGMA table_info(queue)`).all() as Array<{ name: string }>).map((c) => c.name),
+        (
+          db.prepare(`PRAGMA table_info(queue)`).all() as Array<{ name: string }>
+        ).map((c) => c.name),
       );
       const entryCols = new Set(
-        (db.prepare(`PRAGMA table_info(queue_entry)`).all() as Array<{ name: string }>).map((c) => c.name),
+        (
+          db.prepare(`PRAGMA table_info(queue_entry)`).all() as Array<{
+            name: string;
+          }>
+        ).map((c) => c.name),
       );
-      const coinExpr = queueCols.has("coin_cost") ? "COALESCE(NULLIF(coin_cost, 0), 1)" : "1";
-      const headEligExpr = entryCols.has("head_eligible_at") ? "head_eligible_at" : "NULL";
-      const headMissExpr = entryCols.has("head_miss_count") ? "COALESCE(head_miss_count, 0)" : "0";
+      const coinExpr = queueCols.has("coin_cost")
+        ? "COALESCE(NULLIF(coin_cost, 0), 1)"
+        : "1";
+      const headEligExpr = entryCols.has("head_eligible_at")
+        ? "head_eligible_at"
+        : "NULL";
+      const headMissExpr = entryCols.has("head_miss_count")
+        ? "COALESCE(head_miss_count, 0)"
+        : "0";
 
       db.exec(`
         CREATE TABLE queue__new (

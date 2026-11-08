@@ -17,10 +17,9 @@ test("maintenance applies configured privacy retention policies", async () => {
     path.join(tmpdir(), "vw-maintenance-"),
   );
   process.env.IP_BINDING_RETENTION_DAYS = "2";
-  process.env.PROFILE_DATA_RETENTION_DAYS = "30";
+  process.env.LOGIN_METADATA_RETENTION_DAYS = "30";
   process.env.QUEUE_HISTORY_RETENTION_DAYS = "30";
   process.env.AUDIT_EVENT_RETENTION_DAYS = "90";
-  process.env.TRANSIENT_DATA_RETENTION_SEC = "86400";
   process.env.RATE_LIMIT_BUCKET_RETENTION_SEC = "3600";
 
   const { getDb } = await import("../db");
@@ -36,32 +35,21 @@ test("maintenance applies configured privacy retention policies", async () => {
     "stale-user",
     "active-user",
   ]) {
+    const hasLoginMetadata =
+      user === "stale-user" || user === "active-user";
     db.prepare(
       `INSERT INTO app_user
-       (id, nickname, sdgb_identity_hash, display_name, rating, title, icon_url,
-        avatar_url, profile_snapshot, last_login_ip_hash, last_login_day,
+       (id, username, nickname, password_hash, password_salt, password_algo,
+        qq, checkin_venue_id, registered_at, last_login_ip_hash, last_login_day,
         created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, 'hash', 'salt', 'scrypt-v1', NULL, NULL, ?, ?, ?, ?, ?)`,
     ).run(
       user,
       user,
-      `${user}-identity`,
-      user === "history-user" || user === "recent-user"
-        ? null
-        : `${user} display`,
-      user === "history-user" || user === "recent-user" ? null : 12345,
-      user === "history-user" || user === "recent-user" ? null : "title",
-      user === "history-user" || user === "recent-user"
-        ? null
-        : "https://example.test/icon.png",
-      user === "history-user" || user === "recent-user"
-        ? null
-        : "https://example.test/avatar.png",
-      user === "history-user" || user === "recent-user"
-        ? null
-        : JSON.stringify({ rating: 12345 }),
-      user === "history-user" || user === "recent-user" ? null : "a".repeat(64),
-      user === "history-user" || user === "recent-user" ? null : "2026-05-01",
+      user,
+      old,
+      hasLoginMetadata ? "a".repeat(64) : null,
+      hasLoginMetadata ? "2026-05-01" : null,
       old,
       user === "recent-user" ? recent : old,
     );
@@ -93,7 +81,6 @@ test("maintenance applies configured privacy retention policies", async () => {
      VALUES ('entry-active', 'queue-b', 'active-user', NULL, 'SOLO', 102, 'WAITING', 1, ?, ?, ?)`,
   ).run(old, old, old);
 
-
   db.prepare(
     `INSERT INTO ip_day_binding (ip_hash, day_key, user_id, created_at, updated_at)
      VALUES (?, '2026-05-01', 'stale-user', ?, ?),
@@ -111,7 +98,12 @@ test("maintenance applies configured privacy retention policies", async () => {
     `INSERT INTO session (id, user_id, ip_hash, issued_at_ms, revoked_at_ms)
      VALUES ('sess-old', 'history-user', ?, ?, NULL),
             ('sess-recent', 'active-user', ?, ?, NULL)`,
-  ).run("d".repeat(64), new Date(old).getTime(), "e".repeat(64), new Date(recent).getTime());
+  ).run(
+    "d".repeat(64),
+    new Date(old).getTime(),
+    "e".repeat(64),
+    new Date(recent).getTime(),
+  );
 
   const result = runMaintenance(now);
 
@@ -119,7 +111,7 @@ test("maintenance applies configured privacy retention policies", async () => {
   assert.equal(result.queuePartiesDeleted, 1);
   assert.equal(result.auditEventsDeleted, 1);
   assert.equal(result.expiredIpDayBindingsDeleted, 1);
-  assert.equal(result.staleProfilesScrubbed, 1);
+  assert.equal(result.staleLoginMetadataScrubbed, 1);
   assert.equal(result.expiredSessionsDeleted, 1);
 
   assert.equal(
@@ -183,25 +175,17 @@ test("maintenance applies configured privacy retention policies", async () => {
 
   const stale = scalar(
     db,
-    "SELECT display_name, rating, title, icon_url, avatar_url, profile_snapshot, last_login_ip_hash, last_login_day FROM app_user WHERE id = ?",
+    "SELECT nickname, last_login_ip_hash, last_login_day FROM app_user WHERE id = ?",
     "stale-user",
   ) as Record<string, unknown>;
-  assert.deepEqual(Object.values(stale), [
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-    null,
-  ]);
+  assert.deepEqual(Object.values(stale), ["stale-user", null, null]);
 
   const active = scalar(
     db,
-    "SELECT display_name, rating, title, icon_url, avatar_url, profile_snapshot, last_login_ip_hash, last_login_day FROM app_user WHERE id = ?",
+    "SELECT nickname, last_login_ip_hash, last_login_day FROM app_user WHERE id = ?",
     "active-user",
   ) as Record<string, unknown>;
-  assert.equal(active.display_name, "active-user display");
-  assert.equal(active.rating, 12345);
+  assert.equal(active.nickname, "active-user");
+  assert.equal(active.last_login_ip_hash, "a".repeat(64));
+  assert.equal(active.last_login_day, "2026-05-01");
 });

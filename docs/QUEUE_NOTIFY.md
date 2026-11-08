@@ -1,6 +1,7 @@
 # 队列监听与自动通知
 
-本文描述 VirtualWait Web 与 QQ 机器人插件（`services/bot`，NoneBot2）之间的**机台空闲 → 群内 @ 队首**联动：数据模型、Bot API、插件行为、限流与联调计划。实现以代码为准。
+本文描述 VirtualWait Web 与 QQ 机器人（`services/bot`，NoneBot2）之间的**机台空闲 → 群内 @ 队首**联动：
+数据模型、Bot API、插件行为、限流与联调计划。实现以代码为准。
 
 ## 1. 目标与边界
 
@@ -8,8 +9,9 @@
 |----|------|
 | 目标 | 机台无 `PLAYING` 且存在等待队首时，向配置/下发的群 UMO 发送 @ 消息 |
 | 非目标 | 不在公开 `/public` 接口暴露 QQ；不做 Web 内嵌 IM；不替代队头确认超时逻辑 |
-| 身份 | 玩家在 `/me` 绑定 QQ（**排队必填**）；Bot 侧若仍遇无 QQ 队首则跳过通知并计入统计 |
+| 身份 | 玩家用本地账号登录后在 `/me` 绑定 QQ；默认 `REQUIRE_QQ_FOR_QUEUE=true` 时排队必填。Bot 侧若仍遇无 QQ 队首则跳过通知并计入统计 |
 | 路由 | 优先使用场地 `groupUmo`（后台配置），配置文件作兜底 |
+| 出站依赖 | 机器人只访问本部署的 Web `Bot API`，不连接任何游戏服务器或第三方平台 |
 
 ## 2. 数据映射（逆向结论 + 扩展）
 
@@ -50,7 +52,7 @@
 | 目录接口 | `GET /api/bot/catalog` |
 | 队列详情 | `GET /api/bot/queues/{venueSlug}/{machineSlug}` |
 | 机台标识 | `machineSlug` / `machineName` |
-| 队首组 | `head`（空闲且有等待时非 null） |
+| 队首组 | `head`（空闲且有等待时非 null；含 `missCount`＝该组已错过的叫号次数） |
 | 队首玩家 | `head.players[]`：`entryId`, `displayName`, `qq` |
 | 完整等待队列 | `waitingQueue[]`：当前机台的等待槽位；双人组同一排位，按公开队列顺序返回 |
 | 机台空闲 | `machineIdle` |
@@ -63,29 +65,25 @@
 ```text
 machine_idle := 无 PLAYING 条目
 notify       := machine_idle AND head 存在
-head_key     := "{machineSlug}_" + "_".join(sorted(有效 qq 列表))
+head_key     := "{machineSlug}_{missCount}_" + "_".join(sorted(有效 qq 列表))
 ```
+
+`missCount` 是该队首组已错过的队头确认窗口数（Web 在队头确认超时时 +1，成功上机后归零）。
+把它放进键里，队伍只剩一个人时也能在超时被排回队尾后**再次被 @**——否则键不变，
+单人会永远收不到第二次叫号。
 
 - **热集（拉详情）**：`activeCount > 0 OR hasPlaying`；冷机台只吃 catalog，不拉详情。
 - **空队列**：`head is null` 时插件清空该机台 last_head，不发消息。
 - **无 QQ**：队首玩家全部无 `qq` 时不发通知，计入 `skipped_no_qq_count`；有部分 QQ 则只 @ 有 QQ 的人。
 
-## 4. Web：Task 分工
+## 4. Web 侧：Bot API 与鉴权
 
-### 4.1 Task1 — QQ + group_umo
-
-- Schema / 迁移：`app_user.qq`、`venue.group_umo`
-- Session / `PATCH /api/auth/me` / 个人资料 UI
-- `venue-meta` + 管理后台场地字段 `groupUmo`
-
-### 4.2 Task2 — Bot API + 限流
-
-鉴权：`Authorization: Bearer $BOT_API_TOKEN`（与 `ADMIN_API_TOKEN` 分离）。
+鉴权：`Authorization: Bearer $BOT_API_TOKEN`（与 `ADMIN_API_TOKEN` 分离，见 `apps/web/src/lib/auth/bot.ts`）。
 
 | 路径 | 限流默认 | 说明 |
 |------|----------|------|
 | `GET /api/bot/catalog` | 20 次/分钟 | 全市机台摘要 |
-| `GET /api/bot/queues/...` | 120 次/分钟 | 单机台详情（含 QQ） |
+| `GET /api/bot/queues/...` | 240 次/分钟 | 单机台详情（含 QQ） |
 
 超限：`429` + `error.retryAfterSec`（与现有 `RATE_LIMITED` 风格一致）。
 
@@ -95,12 +93,14 @@ head_key     := "{machineSlug}_" + "_".join(sorted(有效 qq 列表))
 |------|------|------|
 | `BOT_API_TOKEN` | 空（未配置则 Bot API 503） | 生产建议 >=32 字符唯一密钥 |
 | `BOT_CATALOG_RATE_LIMIT` | 20 | catalog 每分钟上限 |
-| `BOT_QUEUE_RATE_LIMIT` | 120 | queue 详情每分钟上限 |
+| `BOT_QUEUE_RATE_LIMIT` | 240 | queue 详情每分钟上限（默认轮询 5 秒 ≈ 12 次/分钟，需按热集机台数留余量） |
+
+相关数据：`app_user.qq`（可空唯一）、`venue.group_umo`（管理台「群 UMO」字段，随 catalog/详情下发为 `groupUmo`）。
 
 ## 5. QQ 机器人插件（services/bot，NoneBot2）
 
 路径：`services/bot/plugins/queue_notify.py`（辅助函数 `services/bot/plugins/helpers.py`）。
-由原 AstrBot 插件移植，插件已统一到 NoneBot2，不再依赖 AstrBot / aiohttp。
+机器人只加载这一个业务插件，不再有成绩图 / 写账号数据 / 二维码相关命令。
 
 ### 5.1 轮询漏斗（三层）
 
@@ -111,12 +111,12 @@ head_key     := "{machineSlug}_" + "_".join(sorted(有效 qq 列表))
 ### 5.2 冷却与 headKey
 
 ```text
-cooldown_key = f"{machineSlug}_{'_'.join(sorted(qqs))}"
+head_key = f"{machineSlug}_{missCount}_{'_'.join(sorted(qqs))}"
 ```
 
 - 内存维护 `last_head_by_machine`。
-- 队首 QQ 组合变化且非空 -> 尝试通知；成功后写 last_head，**同一队首只 @ 一次**（不再重复）。
-- 用 **QQ 组合** 而非 entry/party id，避免重排后误判。
+- 键变化且 QQ 非空 -> 尝试通知；成功后写 last_head，**同一键只 @ 一次**（不再重复）。
+- 用 **QQ 组合 + 错过次数** 而非 entry/party id，避免重排后误判，同时保证超时后能重新叫号。
 - 队首 **3 分钟**（`HEAD_CONFIRM_TIMEOUT_SEC`）未确认上机时，Web 将其自动排到队尾，新队首会再次被 @。
 
 ### 5.3 群路由优先级
@@ -158,8 +158,7 @@ cooldown_key = f"{machineSlug}_{'_'.join(sorted(qqs))}"
 | `QUEUE_NOTIFY_ENABLED` | 默认 true；false 关闭轮询 |
 | `QUEUE_NOTIFY_BASE_URL` | Web 根地址 |
 | `QUEUE_NOTIFY_BOT_TOKEN` | 与 `BOT_API_TOKEN` 一致 |
-| `QUEUE_NOTIFY_POLL_INTERVAL_SEC` | 默认 3 |
-| `QUEUE_NOTIFY_COOLDOWN_SEC` | 默认 300（同一队首只 @ 一次，冷却仅作兜底） |
+| `QUEUE_NOTIFY_POLL_INTERVAL_SEC` | 默认 5（未配置时轮询间隔 5 秒） |
 | `QUEUE_NOTIFY_REMINDER_MINUTES` | 默认 3 |
 | `QUEUE_NOTIFY_WARMUP_ROUNDS` | 默认 2 |
 | `QUEUE_NOTIFY_DEFAULT_GROUP` | 兜底群号 |
@@ -170,7 +169,7 @@ cooldown_key = f"{machineSlug}_{'_'.join(sorted(qqs))}"
 
 依赖：`httpx`（已包含在 `services/bot/requirements.txt`）。
 
-## 6. Test Plan（Task4）
+## 6. Test Plan
 
 | ID | 场景 | 期望 |
 |----|------|------|
@@ -182,7 +181,7 @@ cooldown_key = f"{machineSlug}_{'_'.join(sorted(qqs))}"
 | T6 | 错误 Bearer | 401 `BOT_UNAUTHORIZED` |
 | T7 | catalog 限流 | 第 21 次/分钟 429 |
 | T8 | 空闲 + 队首有 QQ | 插件发 @ |
-| T9 | 重排同一 QQ 组 | cooldown 内不重复 @ |
+| T9 | 同一队首键未变化 | 不重复 @ |
 | T10 | 双人双方有 QQ | 一条消息双 At + 队友文案 |
 | T11 | 仅一端有 QQ | 只 @ 有 QQ 者 |
 | T12 | 后端 `groupUmo` 优先于配置 routing | 消息发到后端 UMO |
@@ -201,8 +200,8 @@ cooldown_key = f"{machineSlug}_{'_'.join(sorted(qqs))}"
 
 ```bash
 BOT_API_TOKEN=your-long-random-bot-token
-BOT_CATALOG_RATE_LIMIT=20
-BOT_QUEUE_RATE_LIMIT=120
+BOT_CATALOG_RATE_LIMIT=20   # 轮询 5 秒 ≈ 12 次/分钟，留 ≥1.5 倍余量
+BOT_QUEUE_RATE_LIMIT=240
 ```
 
 **管理后台：** 场地 -> 填写「群 UMO」。

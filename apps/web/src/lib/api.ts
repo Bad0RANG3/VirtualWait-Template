@@ -25,8 +25,19 @@ const ERROR_MAP: Record<string, [number, string]> = {
   INVALID_QQ: [400, "QQ 号格式无效，请填写 5-12 位数字或留空"],
   BOT_DISABLED: [503, "机器人接口未配置"],
   BOT_UNAUTHORIZED: [401, "机器人认证失败"],
-  AUTH_PASSWORD_DISABLED: [410, "账号密码登录已关闭，请使用舞萌二维码登录"],
   NOT_AUTHENTICATED: [401, "请先登录"],
+  REGISTRATION_DISABLED: [403, "当前未开放注册，请联系现场管理员"],
+  USERNAME_TAKEN: [409, "该用户名已被注册"],
+  INVALID_USERNAME: [400, "用户名需为 3-20 位字母、数字、下划线或短横线"],
+  INVALID_NICKNAME: [400, "昵称需为 2-20 个可见字符"],
+  INVALID_PASSWORD: [400, "密码无效"],
+  PASSWORD_TOO_SHORT: [400, "密码至少 8 位"],
+  PASSWORD_TOO_LONG: [400, "密码最多 128 位"],
+  PASSWORD_TOO_WEAK: [400, "密码过于简单，请更换更复杂的密码"],
+  INVALID_CREDENTIALS: [401, "用户名或密码不正确"],
+  CHECKIN_REQUIRED: [400, "请输入当前场地的签到码"],
+  CHECKIN_INVALID: [403, "签到码不正确或已过期，请向现场工作人员确认最新签到码"],
+  CHECKIN_VENUE_UNKNOWN: [404, "场地不存在或未开放注册"],
   INVALID_PLAYING_TIMEOUT: [400, "游玩超时需在 1 分钟到 24 小时之间"],
   INVALID_HEAD_CONFIRM_TIMEOUT: [400, "队头确认超时需在 30 秒到 60 分钟之间"],
   INVALID_MACHINE_COUNT: [400, "机台数量无效"],
@@ -41,24 +52,11 @@ const ERROR_MAP: Record<string, [number, string]> = {
   PARTY_HOST_MISSING: [409, "拼机发起人已不在队列"],
   NOT_DUO: [409, "不是拼机队伍"],
   INVALID_PARTY_STATUS: [409, "当前拼机状态不可确认"],
-  BIND_CONFLICT: [409, "该舞萌账号已绑定其他用户"],
-  IDENTITY_MISMATCH: [409, "二维码与当前登录账号不一致"],
-  IP_ACCOUNT_BOUND: [409, "该网络地址今日已绑定其他账号"],
+  IP_ACCOUNT_BOUND: [409, "该网络地址今日注册的账号过多，请明日再试"],
   RATE_LIMITED: [429, "请求过于频繁，请稍后再试"],
-  QR_BUSY: [429, "当前登录人数较多，请稍后再试"],
-  GATEWAY_CREATE_FAILED: [502, "舞萌验证服务暂不可用"],
-  GATEWAY_FAILED: [502, "舞萌验证失败，请重试"],
-  QR_EXPIRED: [400, "二维码已过期或已使用，请重新打开微信二维码"],
-  QR_EXCHANGE_FAILED: [502, "二维码验证失败，请重试"],
-  UPSTREAM_TIMEOUT: [504, "舞萌服务器响应超时，请稍后重试"],
-  UPSTREAM_PROTOCOL_ERROR: [502, "舞萌验证服务异常，请稍后重试"],
-  PROFILE_INCOMPLETE: [502, "账号资料不完整，无法登录"],
-  ACCOUNT_BANNED: [403, "该账号无法用于登录"],
   INVALID_REQUEST: [400, "请求参数无效"],
   REQUEST_BODY_TOO_LARGE: [413, "请求体过大"],
   CSRF_ORIGIN_INVALID: [403, "请求来源无效"],
-  IDEMPOTENCY_KEY_REUSED: [409, "请求标识不能用于当前会话"],
-  AUTH_ATTEMPT_NOT_FOUND: [404, "验证任务不存在或已过期"],
   ADMIN_DISABLED: [503, "管理员接口未配置"],
   ADMIN_UNAUTHORIZED: [401, "管理员认证失败"],
   ENTRY_VERSION_CONFLICT: [409, "排队记录已被其他操作更新，请刷新后重试"],
@@ -66,6 +64,7 @@ const ERROR_MAP: Record<string, [number, string]> = {
   NOT_HEAD_OF_QUEUE: [409, "当前不是队头，暂不能上机"],
   MACHINE_BUSY: [409, "机台仍有人在游玩，请稍候"],
   PAIR_NOT_CONFIRMED: [409, "拼机双方确认后才能上机"],
+  INTERNAL_ERROR: [500, "服务器错误"],
 };
 
 /** Structured service error carrying a code, suggested HTTP status, and
@@ -118,6 +117,12 @@ function requestHostOrigin(req: Request) {
 }
 
 export function assertSameOrigin(req: Request): void {
+  // A Bearer-authenticated request is a machine caller (operator script, CI),
+  // not a cookie-carrying browser: cross-site JS cannot set Authorization
+  // without a CORS preflight these routes never grant, so there is no CSRF
+  // surface to protect here.
+  if (req.headers.get("authorization")?.startsWith("Bearer ")) return;
+
   const origin = req.headers.get("origin");
   const fetchSite = req.headers.get("sec-fetch-site");
 
@@ -147,9 +152,15 @@ export function mapServiceError(err: unknown) {
     const [status, message] = ERROR_MAP[err.code] || [500, "服务器错误"];
     return jsonError(err.code, err.publicMessage || message, status);
   }
-  const code = err instanceof Error ? err.message : "INTERNAL_ERROR";
-  const [status, message] = ERROR_MAP[code] || [500, "服务器错误"];
-  return jsonError(code, message, status);
+  // Only codes we deliberately defined may reach the client. An arbitrary
+  // internal exception message (SQLite text, file paths, ...) must never become
+  // a public error code, so unknown failures collapse into INTERNAL_ERROR and
+  // the original error is logged server-side instead.
+  const raw = err instanceof Error ? err.message : "";
+  const mapped = ERROR_MAP[raw];
+  if (mapped) return jsonError(raw, mapped[1], mapped[0]);
+  console.error("unhandled service error", err);
+  return jsonError("INTERNAL_ERROR", "服务器错误", 500);
 }
 
 type JsonBodyOptions<T> = {

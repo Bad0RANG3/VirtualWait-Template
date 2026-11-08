@@ -3,17 +3,15 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { insertTestUsers } from "../testing/users";
 
 process.env.VIRTUALWAIT_DATA_DIR = mkdtempSync(path.join(tmpdir(), "vw-public-cap-"));
 
 function seedUsers(db: import("../db/sqlite").Db, ids: string[]) {
-  const now = new Date().toISOString();
-  for (const id of ids) {
-    db.prepare(
-      `INSERT INTO app_user (id, nickname, show_rating_public, created_at, updated_at)
-       VALUES (?, ?, 1, ?, ?)`,
-    ).run(id, id, now, now);
-  }
+  insertTestUsers(
+    db,
+    ids.map((id) => ({ id })),
+  );
 }
 
 function seedWaiting(db: import("../db/sqlite").Db, queueId: string, count: number, fromSeq: number) {

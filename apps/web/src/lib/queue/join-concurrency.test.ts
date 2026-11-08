@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import type { Db } from "../db/sqlite";
+import { insertTestUsers } from "../testing/users";
 import { updateVenueMeta } from "../settings/venue-meta";
 
 // node:test runs every test in this file inside one process and the SQLite
@@ -12,13 +13,10 @@ import { updateVenueMeta } from "../settings/venue-meta";
 process.env.VIRTUALWAIT_DATA_DIR = mkdtempSync(path.join(tmpdir(), "vw-join-race-"));
 
 function seedUsers(db: Db, ids: string[]) {
-  const now = new Date().toISOString();
-  for (const id of ids) {
-    db.prepare(
-      `INSERT INTO app_user (id, nickname, show_rating_public, qq, created_at, updated_at)
-       VALUES (?, ?, 1, ?, ?, ?)`,
-    ).run(id, id, `q${id}`, now, now);
-  }
+  insertTestUsers(
+    db,
+    ids.map((id) => ({ id, qq: `q${id}` })),
+  );
 }
 
 function openAllDay() {

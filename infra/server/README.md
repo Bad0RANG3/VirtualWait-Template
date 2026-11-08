@@ -6,17 +6,20 @@
 
 ```text
 Internet/Intranet → HTTP 或 HTTPS 反向代理 → Web (127.0.0.1:3000)
-                          ↘ Gateway (127.0.0.1:8787)
+                                                │
+                                                └─ 本地 SQLite（账号、队列、审计、设置）
 ```
 
-Gateway 不应直接暴露到公网。模板中的 Gateway 支持 Mock、HTTP 适配器与可选 `sdgb_preview`；生产示例默认使用 HTTP 适配器。真实生产接入必须先完成授权与安全审计。
+Web 是唯一的服务端组件：身份、队列、管理台和 Bot API 都在同一个 Next.js 进程里。
+系统不连接任何外部身份服务或游戏服务器，因此没有需要单独部署的 Gateway。
 
 ## 部署步骤
 
 1. 使用非 root 运行用户，代码目录、数据目录、备份目录和环境文件分别授予最小权限；
 2. 从 `env/*.example` 复制环境文件到仓库外的受控路径，例如 `/etc/virtualwait/`；
 3. 替换每一个 `CHANGE_ME_*` 值，并保证 staging 与 production 不复用任何密钥、域名或数据目录；
-4. 设置 `APP_BASE_URL`（推荐 HTTPS，受控内网/测试可用 HTTP）、选择 Gateway provider（staging 可用 mock，production 使用已授权的 http 适配器）、受控备份目录、可信代理头和数据保留期限；
+4. 设置 `APP_BASE_URL`（推荐 HTTPS，受控内网/测试可用 HTTP）、受控备份目录、可信代理头和数据保留期限；
+   保持 `HOST=127.0.0.1`（`npm run start` 的默认值），确保只有反向代理能连到应用端口；
 5. 执行静态检查、构建和恢复演练；
 6. 最后安装 systemd service/timer 与 Nginx 配置。
 
@@ -41,10 +44,12 @@ systemd-analyze verify infra/server/systemd/virtualwait-*.service infra/server/s
 ## 安全要求
 
 - 推荐仅通过 HTTPS 公开 Web；若使用 HTTP，应限定在受控内网/测试环境并接受登录 Cookie 非 `Secure` 的风险；
-- Gateway 仅绑定回环或私有受控网络；production 应使用已授权的 `http` provider 适配器，而不是 mock；
 - 代理必须覆盖客户端提交的 `X-Forwarded-For`、`X-Real-IP` 和同类头；
+- 应用必须只监听回环（默认 `HOST=127.0.0.1`），并在宿主机防火墙上封禁应用端口，
+  否则任何人都能直连端口伪造 IP，绕过每 IP 注册配额、登录限流与会话 IP 绑定；
 - 数据库与备份需要加密、访问控制、保留清理和恢复演练；
-- 维护进程必须持续运行，以清理临时数据和过期历史；
-- 管理员令牌只能从受控 secret 注入，不能进入日志、浏览器代码或 shell 历史。
+- 维护进程必须持续运行，以清理限流桶、过期 IP 配额和终态队列历史；
+- 管理员令牌只能从受控 secret 注入，不能进入日志、浏览器代码或 shell 历史；
+- 场地签到码会显示在现场，但仍应通过管理台轮换而不是硬编码到脚本里。
 
 完整模板发布要求见 [安全与发布清单](../../docs/SECURITY.md)。

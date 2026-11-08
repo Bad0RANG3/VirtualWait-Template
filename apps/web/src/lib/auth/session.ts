@@ -1,9 +1,11 @@
 /**
  * 用户会话：HMAC 签名 Cookie（vw_session，含 uid/sid/ip/exp）+ session 表行
- * （支持服务端吊销）；提供 setSession/clearSession/getSessionUser 与资料 upsert。
+ * （支持服务端吊销）；提供 setSession/clearSession/getSessionUser 与用户读取。
+ *
+ * 账号本身（注册、口令校验）见 lib/auth/account.ts。
  */
 import { cookies } from "next/headers";
-import { getDb, nowIso } from "../db";
+import { getDb } from "../db";
 import { env } from "../env";
 import { randomToken, safeEqual, signPayload } from "../crypto";
 import type { SessionUser } from "../types";
@@ -14,8 +16,6 @@ type SessionPayload = {
   uid: string;
   /** Server-side session row id — supports logout revocation. */
   sid: string;
-  /** Legacy field from the old midnight-expiring session format. */
-  day?: string;
   /** Bound client IP hash at login time. */
   ip: string;
   exp: number;
@@ -37,7 +37,7 @@ function decodeSession(token: string | undefined): SessionPayload | null {
   if (!safeEqual(sig, expected)) return null;
   try {
     const payload = JSON.parse(
-      Buffer.from(body, "base64url").toString("utf8")
+      Buffer.from(body, "base64url").toString("utf8"),
     ) as SessionPayload;
     if (
       typeof payload.uid !== "string" ||
@@ -48,9 +48,6 @@ function decodeSession(token: string | undefined): SessionPayload | null {
       payload.sid.length > 128 ||
       typeof payload.exp !== "number" ||
       !Number.isSafeInteger(payload.exp) ||
-      (payload.day !== undefined &&
-        (typeof payload.day !== "string" ||
-          !/^\d{4}-\d{2}-\d{2}$/.test(payload.day))) ||
       typeof payload.ip !== "string" ||
       !(/^[a-f0-9]{64}$/.test(payload.ip) || payload.ip === "unknown")
     ) {
@@ -73,7 +70,7 @@ export async function setSession(userId: string, ipHash: string) {
   getDb()
     .prepare(
       `INSERT INTO session (id, user_id, ip_hash, issued_at_ms, revoked_at_ms)
-       VALUES (?, ?, ?, ?, NULL)`
+       VALUES (?, ?, ?, ?, NULL)`,
     )
     .run(sid, userId, ipHash || "unknown", Date.now());
   const token = encodeSession({
@@ -110,7 +107,7 @@ export async function clearSession() {
  * Pass request when available so a stolen cookie on another IP is rejected.
  */
 export async function getSessionUser(
-  req?: Request | null
+  req?: Request | null,
 ): Promise<SessionUser | null> {
   const jar = await cookies();
   const payload = decodeSession(jar.get(COOKIE)?.value);
@@ -140,7 +137,6 @@ export async function getSessionUser(
     if (
       payload.ip &&
       payload.ip !== "unknown" &&
-      currentIp !== "unknown" &&
       payload.ip !== currentIp
     ) {
       return null;
@@ -150,140 +146,54 @@ export async function getSessionUser(
   // Reject tokens whose server-side session row was revoked (logout) or
   // never existed (forged/stale token).
   const row = getDb()
-    .prepare(
-      `SELECT revoked_at_ms FROM session WHERE id = ? AND user_id = ?`
-    )
-    .get(payload.sid, payload.uid) as { revoked_at_ms: number | null } | undefined;
+    .prepare(`SELECT revoked_at_ms FROM session WHERE id = ? AND user_id = ?`)
+    .get(payload.sid, payload.uid) as
+    | { revoked_at_ms: number | null }
+    | undefined;
   if (!row || row.revoked_at_ms != null) return null;
 
   return getUserById(payload.uid);
 }
 
+type SessionUserRow = {
+  id: string;
+  username: string;
+  nickname: string;
+  qq: string | null;
+  checkin_venue_id: string | null;
+  registered_at: string;
+};
+
+function userRowById(userId: string): SessionUserRow | null {
+  return (
+    (getDb()
+      .prepare(
+        `SELECT id, username, nickname, qq, checkin_venue_id, registered_at
+         FROM app_user WHERE id = ?`,
+      )
+      .get(userId) as SessionUserRow | undefined) || null
+  );
+}
+
 /** Return the browser-safe representation of a persisted application user. */
 export function getUserById(userId: string): SessionUser | null {
-  const db = getDb();
-  const row = db
-    .prepare(
-      `SELECT id, nickname, display_name, rating, show_rating_public, title, sdgb_identity_hash,
-              avatar_url, qq
-       FROM app_user WHERE id = ?`
-    )
-    .get(userId) as
-    | {
-        id: string;
-        nickname: string;
-        display_name: string | null;
-        rating: number | null;
-        show_rating_public: number;
-        title: string | null;
-        sdgb_identity_hash: string | null;
-        avatar_url: string | null;
-        qq: string | null;
-      }
-    | undefined;
+  const row = userRowById(userId);
   if (!row) return null;
-  const bound = Boolean(row.sdgb_identity_hash);
+  return toSessionUser(row);
+}
+
+export function toSessionUser(row: SessionUserRow): SessionUser {
   return {
     id: row.id,
+    username: row.username,
     nickname: row.nickname,
     displayName: row.nickname,
-    rating: bound ? row.rating : null,
-    showRatingPublic: Boolean(row.show_rating_public),
-    title: bound ? row.title : null,
-    bound,
-    avatarUrl: row.avatar_url,
     qq: row.qq || null,
-    loginProvider: bound ? "maimai" : "unknown",
+    checkinVenueId: row.checkin_venue_id,
+    registeredAt: row.registered_at,
   };
 }
 
 export function createUserId() {
   return randomToken(16);
-}
-
-export function touchUserUpdatedAt(userId: string) {
-  getDb()
-    .prepare(`UPDATE app_user SET updated_at = ? WHERE id = ?`)
-    .run(nowIso(), userId);
-}
-
-/**
- * Find or create a user by maimai identity hash. Existing users keep their
- * editable public nickname; maimai profile fields are refreshed separately.
- */
-export function upsertMaimaiUser(input: {
-  identityHash: string;
-  /** Ciphered/opaque sdgb user id storage; never return to browser. */
-  sdgbUserIdCipher: string | null;
-  displayName: string;
-  rating?: number | null;
-  title?: string | null;
-  iconUrl?: string | null;
-  profileSnapshot?: Record<string, unknown> | null;
-}) {
-  const db = getDb();
-  const now = nowIso();
-  const existing = db
-    .prepare(
-      `SELECT id, nickname FROM app_user WHERE sdgb_identity_hash = ?`
-    )
-    .get(input.identityHash) as { id: string; nickname: string } | undefined;
-
-  const preferredName = (input.displayName || "").trim().slice(0, 20) || "舞萌玩家";
-
-  if (existing) {
-    db.prepare(
-      `UPDATE app_user
-       SET display_name = ?,
-           sdgb_user_id_cipher = COALESCE(?, sdgb_user_id_cipher),
-           rating = ?,
-           title = ?,
-           icon_url = ?,
-           profile_snapshot = ?,
-           bound_at = COALESCE(bound_at, ?),
-           updated_at = ?
-       WHERE id = ?`
-    ).run(
-      input.displayName,
-      input.sdgbUserIdCipher,
-      input.rating ?? null,
-      input.title ?? null,
-      input.iconUrl ?? null,
-      input.profileSnapshot ? JSON.stringify(input.profileSnapshot) : null,
-      now,
-      now,
-      existing.id
-    );
-    return existing.id;
-  }
-
-  const id = createUserId();
-  let nickname = preferredName;
-  let i = 1;
-  while (db.prepare(`SELECT id FROM app_user WHERE nickname = ?`).get(nickname)) {
-    nickname = `${preferredName.slice(0, 16)}_${i++}`;
-  }
-
-  db.prepare(
-    `INSERT INTO app_user
-     (id, nickname, password_hash, password_salt, wechat_openid, wechat_unionid,
-      avatar_url, sdgb_identity_hash, sdgb_user_id_cipher, display_name, rating,
-      title, icon_url, profile_snapshot, bound_at, created_at, updated_at)
-     VALUES (?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    nickname,
-    input.iconUrl ?? null,
-    input.identityHash,
-    input.sdgbUserIdCipher,
-    nickname,
-    input.rating ?? null,
-    input.title ?? null,
-    input.iconUrl ?? null,
-    input.profileSnapshot ? JSON.stringify(input.profileSnapshot) : null,
-    now,
-    now,
-    now
-  );
-  return id;
 }

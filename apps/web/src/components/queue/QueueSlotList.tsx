@@ -35,11 +35,6 @@ export function QueueSlotList({ slots }: { slots: QueueSlotView[] }) {
                           {entry.profile.displayName}{entry.isMine ? "（我）" : ""}
                         </div>
                         <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-ink-500">
-                          {entry.profile.bound && entry.profile.ratingVisible && typeof entry.profile.rating === "number"
-                            ? <span>R{entry.profile.rating}</span>
-                            : !entry.profile.bound ? <span className="text-ink-400">未绑定</span>
-                            : <span className="text-ink-400">Rating 隐藏</span>}
-                          {entry.profile.bound && entry.profile.title && <span>{entry.profile.title}</span>}
                           <span>#{entry.sequenceNumber}</span>
                         </div>
                       </div>

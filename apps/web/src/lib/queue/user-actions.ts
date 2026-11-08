@@ -5,6 +5,7 @@
 import { ServiceError } from "../api";
 import { randomUUID } from "crypto";
 import { getDb, nowIso } from "../db";
+import { env } from "../env";
 import { isVenueOpenNow } from "../settings";
 import type { EntryStatus, PlayMode } from "../types";
 import {
@@ -38,10 +39,12 @@ export function joinQueue(
   targetPartyId?: string | null,
 ) {
   const db = getDb();
-  const userRow = db
-    .prepare(`SELECT qq FROM app_user WHERE id = ?`)
-    .get(userId) as { qq: string | null } | undefined;
-  if (!userRow?.qq) throw new ServiceError("QQ_REQUIRED");
+  if (env.requireQqForQueue) {
+    const userRow = db
+      .prepare(`SELECT qq FROM app_user WHERE id = ?`)
+      .get(userId) as { qq: string | null } | undefined;
+    if (!userRow?.qq) throw new ServiceError("QQ_REQUIRED");
+  }
   const queue = db.prepare(`SELECT * FROM queue WHERE id = ?`).get(queueId) as
     | { id: string; status: string; next_sequence: number }
     | undefined;
@@ -232,7 +235,11 @@ export function cancelEntry(entryId: string, userId: string) {
   if (!entry) throw new ServiceError("ENTRY_NOT_FOUND");
   if (entry.user_id !== userId) throw new ServiceError("FORBIDDEN");
   if (entry.status !== "WAITING") throw new ServiceError("INVALID_STATUS");
-  finishOrExpireEntry(entry.id, "CANCELLED", "USER", userId);
+  // A concurrent timeout requeue in the maintenance process may have moved the
+  // entry first; the status guard makes this a no-op rather than a stale write.
+  if (!finishOrExpireEntry(entry.id, "CANCELLED", "USER", userId, undefined, ["WAITING"])) {
+    return;
+  }
   if (entry.party_id && entry.play_mode === "DUO") {
     const party = getParty(entry.party_id);
     const now = nowIso();

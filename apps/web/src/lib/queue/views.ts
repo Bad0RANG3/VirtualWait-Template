@@ -20,11 +20,6 @@ function toPartyView(
   const memberViews = members.map((member) => ({
     entryId: member.id,
     displayName: member.nickname,
-    rating:
-      member.sdgb_identity_hash && member.show_rating_public ? member.rating : null,
-    ratingVisible: Boolean(member.sdgb_identity_hash && member.show_rating_public),
-    title: member.sdgb_identity_hash ? member.title : null,
-    bound: Boolean(member.sdgb_identity_hash),
     status: member.status,
     isHost: member.user_id === party.host_user_id,
     confirmed:
@@ -60,7 +55,6 @@ function toEntryView(
   canConfirmStart = false,
   headConfirmDeadlineAt: string | null = null,
 ): QueueEntryView {
-  const bound = Boolean(row.sdgb_identity_hash);
   return {
     id: row.id,
     sequenceNumber: row.sequence_number,
@@ -73,11 +67,6 @@ function toEntryView(
     headMissCount: row.head_miss_count ?? 0,
     profile: {
       displayName: row.nickname,
-      rating: bound && row.show_rating_public ? row.rating : null,
-      ratingVisible: Boolean(bound && row.show_rating_public),
-      title: bound ? row.title : null,
-      iconUrl: bound ? row.icon_url : null,
-      bound,
     },
     isMine: Boolean(currentUserId && row.user_id === currentUserId),
     canConfirmStart,

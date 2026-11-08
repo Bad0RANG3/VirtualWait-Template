@@ -1,6 +1,6 @@
 const timeoutMs = 5_000;
-const webUrl = process.env.VIRTUALWAIT_WEB_HEALTH_URL || "http://127.0.0.1:3000/api/healthz";
-const gatewayUrl = process.env.VIRTUALWAIT_GATEWAY_HEALTH_URL || "http://127.0.0.1:8787/healthz";
+const webUrl =
+  process.env.VIRTUALWAIT_WEB_HEALTH_URL || "http://127.0.0.1:3000/api/healthz";
 
 async function check(name, url) {
   let response;
@@ -22,5 +22,5 @@ async function check(name, url) {
   }
 }
 
-await Promise.all([check("Web", webUrl), check("Gateway", gatewayUrl)]);
+await check("Web", webUrl);
 console.info("VirtualWait local health checks passed");

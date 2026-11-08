@@ -1,6 +1,6 @@
 [Unit]
-Description=VirtualWait local Web and Gateway health check
-After=virtualwait-web.service virtualwait-gateway.service
+Description=VirtualWait local Web health check
+After=virtualwait-web.service
 
 [Service]
 Type=oneshot

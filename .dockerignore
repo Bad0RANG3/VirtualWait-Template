@@ -1,6 +1,6 @@
 # 白名单式 .dockerignore：构建上下文只包含 QQ 机器人运行所需文件，
-# 防止本地私有覆盖/运行数据（settings_local.py、.env*、napcat/、data/、数据库、node_modules 等）被打进镜像。
-# SDGB 公开默认参数已内置在 settings.py（开箱即用）；换机厅用 VW_SDGB_* 环境变量覆盖。不要放宽此文件。
+# 防止本地运行数据（.env*、napcat/、data/、数据库、node_modules 等）被打进镜像。
+# 不要放宽此文件。
 
 # 默认排除一切
 *
@@ -18,24 +18,7 @@ services/bot/.venv/
 services/bot/.pytest_cache/
 services/bot/__pycache__/
 services/bot/**/__pycache__/
-services/bot/token_cache.json
-services/bot/records_cache.json
-services/bot/music_data_cache.json
 services/bot/*.log
-
-# 允许：共享 SDGB 客户端（随后再排除 settings_local.py 等）
-!packages/
-!packages/sdgb-client/
-!packages/sdgb-client/**
-# --- sdgb-client 内再排除敏感/运行文件 ---
-packages/sdgb-client/sdgb/settings_local.py
-packages/sdgb-client/.venv/
-packages/sdgb-client/__pycache__/
-packages/sdgb-client/**/__pycache__/
-packages/sdgb-client/*.egg-info/
-packages/sdgb-client/token_cache.json
-packages/sdgb-client/records_cache.json
-packages/sdgb-client/music_data_cache.json
 
 # 允许：容器入口脚本
 !infra/

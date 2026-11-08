@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { insertTestUsers } from "../testing/users";
 
 test("bot catalog and queue detail expose groupUmo and head qq", async () => {
   process.env.VIRTUALWAIT_DATA_DIR = mkdtempSync(path.join(tmpdir(), "vw-bot-"));
@@ -11,32 +12,21 @@ test("bot catalog and queue detail expose groupUmo and head qq", async () => {
   process.env.HEAD_CONFIRM_TIMEOUT_SEC = "180";
 
   const { getDb } = await import("../db");
-  const { getBotCatalog, getBotQueueDetail, botHeadCooldownKey } = await import("./bot");
+  const { getBotCatalog, getBotQueueDetail } = await import("./bot");
   const { updateVenueMeta } = await import("../settings/venue-meta");
   const db = getDb();
   const now = new Date().toISOString();
 
-  db.prepare(
-    `INSERT INTO app_user (id, nickname, show_rating_public, qq, created_at, updated_at)
-     VALUES
-      ('u-a', 'PlayerA', 1, '10001', ?, ?),
-      ('u-b', 'PlayerB', 1, '10002', ?, ?),
-      ('u-c', 'PlayerC', 1, NULL, ?, ?),
-      ('u-d', 'PlayerD', 1, '10003', ?, ?),
-      ('u-e', 'PlayerE', 1, '10004', ?, ?),
-      ('u-other', 'OtherVenuePlayer', 1, '10005', ?, ?)`,
-  ).run(
-    now,
-    now,
-    now,
-    now,
-    now,
-    now,
-    now,
-    now,
-    now,
-    now,
-    now,
+  insertTestUsers(
+    db,
+    [
+      { id: "u-a", nickname: "PlayerA", qq: "10001" },
+      { id: "u-b", nickname: "PlayerB", qq: "10002" },
+      { id: "u-c", nickname: "PlayerC", qq: null },
+      { id: "u-d", nickname: "PlayerD", qq: "10003" },
+      { id: "u-e", nickname: "PlayerE", qq: "10004" },
+      { id: "u-other", nickname: "OtherVenuePlayer", qq: "10005" },
+    ],
     now,
   );
 
@@ -119,10 +109,8 @@ test("bot catalog and queue detail expose groupUmo and head qq", async () => {
     ),
     false,
   );
-  assert.equal(
-    botHeadCooldownKey(detail!.machineSlug, detail!.head!.players),
-    "machine-a_10001",
-  );
+  // The notifier keys its de-duplication on the head group's missed-call count.
+  assert.equal(detail!.head!.missCount, 0);
 
   // busy machine: playing present -> idle false, head null for notify path
   db.prepare(
@@ -135,12 +123,35 @@ test("bot catalog and queue detail expose groupUmo and head qq", async () => {
   assert.equal(busy!.waitingQueue[0]?.players[0]?.displayName, "PlayerC");
 });
 
-test("bot head cooldown key sorts qq set", async () => {
-  const { botHeadCooldownKey } = await import("./bot");
-  assert.equal(
-    botHeadCooldownKey("m1", [{ qq: "200" }, { qq: "100" }, { qq: null }]),
-    "m1_100_200",
-  );
+test("bot head detail reports the missed-call count after a timeout", async () => {
+  // Same process/DB as the previous test: start from an empty queue-a.
+  const { getDb } = await import("../db");
+  const { getBotQueueDetail } = await import("./bot");
+  const { insertTestUsers } = await import("../testing/users");
+  const { updateVenueMeta } = await import("../settings/venue-meta");
+  const db = getDb();
+  const now = new Date().toISOString();
+
+  db.prepare(`DELETE FROM queue_entry WHERE queue_id = 'queue-a'`).run();
+  insertTestUsers(db, [{ id: "u-miss", nickname: "MissPlayer", qq: "10009" }], now);
+  updateVenueMeta("venue-sample-central", {
+    address: "addr",
+    regionName: "示例区",
+    regionKind: "district",
+    machineCount: 2,
+    openMinute: 0,
+    closeMinute: 24 * 60 - 1,
+  });
+  db.prepare(
+    `INSERT INTO queue_entry
+      (id, queue_id, user_id, party_id, play_mode, sequence_number, status, version,
+       joined_at, head_miss_count, created_at, updated_at)
+     VALUES ('e-miss', 'queue-a', 'u-miss', NULL, 'SOLO', 1, 'WAITING', 1, ?, 3, ?, ?)`,
+  ).run(now, now, now);
+
+  const detail = getBotQueueDetail("sample-venue", "machine-a");
+  assert.equal(detail!.head!.missCount, 3);
+  assert.equal(detail!.head!.players[0]?.displayName, "MissPlayer");
 });
 
 

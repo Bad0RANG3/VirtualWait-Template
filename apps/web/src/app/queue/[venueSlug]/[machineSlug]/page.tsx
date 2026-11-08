@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { QueueBoard } from "@/components/QueueBoard";
 import { getSessionUser } from "@/lib/auth/session";
 import { machineBySlug, venueBySlug } from "@/lib/constants/catalog";
+import { env } from "@/lib/env";
 import { getPublicQueue } from "@/lib/queue/service";
 
 export default async function QueuePage({
@@ -27,6 +28,7 @@ export default async function QueuePage({
       accent={machine.accent}
       initial={snapshot}
       user={user}
+      requireQq={env.requireQqForQueue}
     />
   );
 }

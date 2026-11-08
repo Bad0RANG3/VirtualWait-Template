@@ -1,18 +1,22 @@
 import { expect, test } from "@playwright/test";
+import { fetchCheckinCode, registerThroughUi } from "./helpers";
 
-test("移动端可完成 Mock 扫码登录，页面不产生横向溢出", async ({ page }) => {
+test("移动端可完成注册登录，页面不产生横向溢出", async ({ page, request }) => {
+  const checkin = await fetchCheckinCode(request);
+
   await page.goto("/login");
-  await expect(page.getByRole("heading", { name: "扫码登录" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "注册", exact: true })).toBeVisible();
 
-  await page
-    .getByLabel("二维码")
-    // Browser projects share one test database. Reuse the same account as the
-    // desktop login so the real one-IP/one-account-per-day rule remains on.
-    .fill("mock:playwright-user:Playwright玩家:14500:E2E");
-  await page.getByRole("button", { name: "扫码登录" }).click();
+  await registerThroughUi(page, checkin, {
+    // Browser projects share one test database; use a dedicated account so this
+    // project never depends on the desktop project's run order.
+    username: "mobileuser",
+    password: "{{SECRET_qaixt4hr}}",
+    nickname: "Mobile玩家",
+  });
 
   await expect(page).toHaveURL(/\/me$/);
-  await expect(page.getByRole("heading", { name: "Playwright玩家" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Mobile玩家" })).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
     .toBe(true);

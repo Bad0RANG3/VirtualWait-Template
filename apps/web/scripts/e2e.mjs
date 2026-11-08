@@ -6,12 +6,11 @@ import os from "node:os";
 import path from "node:path";
 
 const appRoot = process.cwd();
-const repositoryRoot = path.resolve(appRoot, "../..");
-const gatewayRoot = path.join(repositoryRoot, "services/sdgb-gateway");
-const gatewaySource = path.join(gatewayRoot, "src");
-const sharedSecret = "e2e-shared-secret-0123456789abcdef";
-const publicIdSecret = "e2e-public-id-secret-0123456789abcdef";
 const adminToken = "e2e-admin-token-0123456789abcdef";
+const sessionSecret = "e2e-shared-secret-0123456789abcdef";
+
+const nextBin = path.join(appRoot, "node_modules", "next", "dist", "bin", "next");
+const healthcheckScript = path.join(appRoot, "scripts", "healthcheck.mjs");
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -41,7 +40,7 @@ async function waitFor(url, name) {
   throw new Error(`${name} did not become ready: ${String(lastError)}`);
 }
 
-function start(command, args, options) {
+function spawnProcess(command, args, options) {
   const child = spawn(command, args, { ...options, stdio: "ignore" });
   child.once("error", (error) => {
     throw error;
@@ -60,7 +59,7 @@ async function stop(child) {
 }
 
 async function runHealthcheck(env) {
-  const child = spawn("npm", ["run", "healthcheck"], {
+  const child = spawn(process.execPath, [healthcheckScript], {
     cwd: appRoot,
     env,
     stdio: "ignore",
@@ -69,7 +68,7 @@ async function runHealthcheck(env) {
     child.once("error", reject);
     child.once("exit", (code) => resolve(code));
   });
-  assert.equal(exitCode, 0, "local Web/Gateway healthcheck should pass");
+  assert.equal(exitCode, 0, "local Web healthcheck should pass");
 }
 
 function cookie(response) {
@@ -102,85 +101,129 @@ async function patch(baseUrl, pathname, body, headers = {}) {
   });
 }
 
-let gateway;
 let web;
 let tempDirectory;
 
 try {
   tempDirectory = await mkdtemp(path.join(os.tmpdir(), "virtualwait-e2e-"));
-  const gatewayPort = await freePort();
   const webPort = await freePort();
   const baseUrl = `http://127.0.0.1:${webPort}`;
   const env = {
     ...process.env,
     NEXT_TELEMETRY_DISABLED: "1",
-    GATEWAY_MODE: "remote",
-    GATEWAY_BASE_URL: `http://127.0.0.1:${gatewayPort}`,
-    GATEWAY_KEY_ID: "dev-web-1",
-    GATEWAY_SHARED_SECRET: sharedSecret,
-    PUBLIC_ID_HMAC_SECRET: publicIdSecret,
+    SESSION_SECRET: sessionSecret,
     ADMIN_API_TOKEN: adminToken,
     APP_BASE_URL: baseUrl,
+    REGISTRATION_ENABLED: "true",
+    CHECKIN_REQUIRED: "true",
+    TRUST_PROXY_HEADERS: "false",
     VIRTUALWAIT_TEST_NOW: "2026-07-16T04:00:00.000Z",
     VIRTUALWAIT_DATA_DIR: path.join(tempDirectory, "web-data"),
   };
 
-  gateway = start("python3", ["-m", "virtualwait_gateway"], {
-    cwd: gatewayRoot,
-    env: {
-      ...env,
-      PYTHONPATH: gatewaySource,
-      VW_GATEWAY_ENV: "test",
-      VW_GATEWAY_PORT: String(gatewayPort),
-      VW_GATEWAY_DATABASE_PATH: path.join(tempDirectory, "gateway.db"),
-      VW_GATEWAY_PROVIDER: "mock",
-      VW_GATEWAY_KEY_ID: "dev-web-1",
-      VW_GATEWAY_SHARED_SECRET: sharedSecret,
-      VW_PUBLIC_ID_HMAC_SECRET: publicIdSecret,
+  web = spawnProcess(
+    process.execPath,
+    [nextBin, "dev", "-p", String(webPort)],
+    {
+      cwd: appRoot,
+      env: { ...env, NODE_OPTIONS: "--experimental-sqlite" },
     },
-  });
-  await waitFor(`http://127.0.0.1:${gatewayPort}/healthz`, "Gateway");
-
-  web = start("npm", ["run", "dev", "--", "-p", String(webPort)], { cwd: appRoot, env });
+  );
   await waitFor(baseUrl, "Web");
   await runHealthcheck({
     ...env,
     VIRTUALWAIT_WEB_HEALTH_URL: `${baseUrl}/api/healthz`,
-    VIRTUALWAIT_GATEWAY_HEALTH_URL: `http://127.0.0.1:${gatewayPort}/healthz`,
   });
 
-  const crossSite = await fetch(`${baseUrl}/api/auth/qr`, {
+  // Cross-site state changes must be rejected before any account work happens.
+  const crossSite = await fetch(`${baseUrl}/api/auth/register`, {
     method: "POST",
     headers: { Origin: "https://attacker.example", "Content-Type": "application/json" },
-    body: JSON.stringify({ qrCode: "mock:e2e-attacker:Attacker" }),
+    body: JSON.stringify({ username: "attacker", password: "attacker-password", nickname: "Attacker" }),
   });
   assert.equal(crossSite.status, 403, "cross-site state change must be rejected");
 
-  // Phase 1: submit QR → receives attemptId + completionToken (no cookie yet).
-  const login = await post(baseUrl, "/api/auth/qr", { qrCode: "mock:e2e-user:E2EUser:14500:Test" });
-  assert.equal(login.status, 200, "remote signed login should return an attempt");
-  const loginBody = await login.json();
-  assert.equal(loginBody.status, "SUCCEEDED");
-  const completionToken = loginBody.completionToken;
-  assert.ok(completionToken, "login should return a completion token");
+  // ---- Operator session, used to read the live venue check-in code ----------
+  const adminLogin = await post(baseUrl, "/api/admin/session", { token: adminToken });
+  assert.equal(adminLogin.status, 200);
+  const adminCookie = cookie(adminLogin);
 
-  // Phase 2: complete the attempt with the one-time token → session cookie.
-  const complete = await post(
-    baseUrl,
-    "/api/auth/complete",
-    { attemptId: loginBody.attemptId, completionToken },
-  );
-  assert.equal(complete.status, 200, "completion should set the session cookie");
-  const userCookie = cookie(complete);
-  const completeBody = await complete.json();
-  assert.equal(completeBody.status, "SUCCEEDED");
-  assert.equal(completeBody.user.nickname, "E2EUser");
+  const venueList = await fetch(`${baseUrl}/api/admin/venues`, {
+    headers: { Cookie: adminCookie },
+  });
+  assert.equal(venueList.status, 200);
+  const venues = (await venueList.json()).venues;
+  assert.ok(Array.isArray(venues) && venues.length > 0, "admin must see the seeded venues");
 
+  let checkin = null;
+  for (const venue of venues) {
+    const res = await fetch(`${baseUrl}/api/admin/venues/${encodeURIComponent(venue.id)}/checkin`, {
+      headers: { Cookie: adminCookie },
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.match(data.checkin.code, /^\d{6}$/, "check-in code must be six digits");
+    checkin = data.checkin;
+  }
+  assert.ok(checkin, "at least one venue check-in code must be available");
+
+  // ---- Registration requires a valid check-in code -------------------------
+  const badCheckin = await post(baseUrl, "/api/auth/register", {
+    username: "e2euser",
+    password: "e2e-player-password",
+    nickname: "E2EUser",
+    venueSlug: checkin.venueSlug,
+    checkinCode: "000000",
+  });
+  assert.equal(badCheckin.status, 403, "a wrong check-in code must be rejected");
+  assert.equal((await badCheckin.json()).error.code, "CHECKIN_INVALID");
+
+  const register = await post(baseUrl, "/api/auth/register", {
+    username: "e2euser",
+    password: "e2e-player-password",
+    nickname: "E2EUser",
+    venueSlug: checkin.venueSlug,
+    checkinCode: checkin.code,
+  });
+  assert.equal(register.status, 200, "registration with a live code must succeed");
+  const userCookie = cookie(register);
+  const registered = await register.json();
+  assert.equal(registered.user.username, "e2euser");
+  assert.equal(registered.user.nickname, "E2EUser");
+
+  // Duplicate usernames are rejected case-insensitively.
+  const duplicate = await post(baseUrl, "/api/auth/register", {
+    username: "E2EUser",
+    password: "another-player-password",
+    nickname: "OtherNick",
+    venueSlug: checkin.venueSlug,
+    checkinCode: checkin.code,
+  });
+  assert.equal(duplicate.status, 409);
+  assert.equal((await duplicate.json()).error.code, "USERNAME_TAKEN");
+
+  // ---- Password login ------------------------------------------------------
+  const wrongPassword = await post(baseUrl, "/api/auth/login", {
+    username: "e2euser",
+    password: "not-the-password",
+  });
+  assert.equal(wrongPassword.status, 401);
+  assert.equal((await wrongPassword.json()).error.code, "INVALID_CREDENTIALS");
+
+  const login = await post(baseUrl, "/api/auth/login", {
+    username: "E2EUser",
+    password: "e2e-player-password",
+  });
+  assert.equal(login.status, 200, "correct credentials must log in");
+  const loginCookie = cookie(login);
+  assert.equal((await login.json()).user.nickname, "E2EUser");
+
+  // ---- Profile: bind QQ, then queue ---------------------------------------
   const bindQq = await patch(
     baseUrl,
     "/api/auth/me",
     { qq: "12345678" },
-    { Cookie: userCookie },
+    { Cookie: loginCookie },
   );
   assert.equal(bindQq.status, 200, "logged-in user should be able to bind a QQ number");
   assert.equal((await bindQq.json()).user.qq, "12345678");
@@ -189,64 +232,65 @@ try {
     baseUrl,
     "/api/queues/sample-venue/machine-a/join",
     { playMode: "SOLO" },
-    { Cookie: userCookie }
+    { Cookie: loginCookie },
   );
   assert.equal(join.status, 200, "logged-in user should join an open queue");
   const joinBody = await join.json();
 
-  const processing = await post(baseUrl, "/api/auth/qr", { qrCode: "mock:processing" });
-  assert.equal(processing.status, 200);
-  const processingBody = await processing.json();
-  assert.equal(processingBody.status, "PROCESSING");
-  const poll = await fetch(`${baseUrl}/api/auth/attempts/${processingBody.attemptId}`);
-  assert.equal(poll.status, 200);
-  assert.equal((await poll.json()).status, "PROCESSING");
-
-  const adminLogin = await post(baseUrl, "/api/admin/session", { token: adminToken });
-  assert.equal(adminLogin.status, 200);
-  const adminCookie = cookie(adminLogin);
-  const entries = await fetch(`${baseUrl}/api/admin/entries`, { headers: { Cookie: adminCookie } });
-  assert.equal(entries.status, 200);
-  const entry = (await entries.json()).entries.find((item) => item.id === joinBody.entryId);
-  assert.ok(entry, "admin should see the newly joined entry");
   const publicQueue = await fetch(`${baseUrl}/api/queues/sample-venue/machine-a/public`);
   assert.equal(publicQueue.status, 200);
   const publicBody = await publicQueue.json();
   assert.ok(
     publicBody.slots.some((slot) =>
-      slot.status === "WAITING" && slot.entries.some((item) => item.id === joinBody.entryId)
+      slot.status === "WAITING" && slot.entries.some((item) => item.id === joinBody.entryId),
     ),
     "public queue should expose the waiting slot",
   );
+  const serializedPublic = JSON.stringify(publicBody);
+  assert.ok(!serializedPublic.includes("12345678"), "public queue must never expose QQ numbers");
 
-  const requeue = await post(
+  // ---- Admin operations ----------------------------------------------------
+  const entries = await fetch(`${baseUrl}/api/admin/entries`, { headers: { Cookie: adminCookie } });
+  assert.equal(entries.status, 200);
+  const entry = (await entries.json()).entries.find((item) => item.id === joinBody.entryId);
+  assert.ok(entry, "admin should see the newly joined entry");
+
+  const start = await post(
     baseUrl,
     `/api/admin/entries/${entry.id}/action`,
     { action: "START", version: entry.version },
-    { Cookie: adminCookie }
+    { Cookie: adminCookie },
   );
-  assert.equal(requeue.status, 200, "admin action should accept the current entry version");
+  assert.equal(start.status, 200, "admin action should accept the current entry version");
+
   const queueUpdate = await post(
     baseUrl,
     "/api/admin/queues/queue-a/status",
     { status: "PAUSED" },
-    { Cookie: adminCookie }
+    { Cookie: adminCookie },
   );
   assert.equal(queueUpdate.status, 200);
-  const audit = await fetch(`${baseUrl}/api/admin/audit?limit=10`, { headers: { Cookie: adminCookie } });
+
+  const audit = await fetch(`${baseUrl}/api/admin/audit?limit=20`, { headers: { Cookie: adminCookie } });
   assert.equal(audit.status, 200);
   const auditEvents = (await audit.json()).events;
   assert.ok(auditEvents.some((event) => event.action === "QUEUE_STATUS_CHANGED"));
   assert.ok(auditEvents.some((event) => event.action === "ENTRY_ADMIN_ACTION"));
+  assert.ok(auditEvents.some((event) => event.action === "ACCOUNT_REGISTERED"));
 
-  // The user cookie is intentionally not needed for the admin flow, but prove
-  // the remote login session remained a valid browser session.
+  // The session created by the first (registration) cookie is still valid.
   const me = await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: userCookie } });
   assert.equal(me.status, 200);
   assert.equal((await me.json()).user.nickname, "E2EUser");
+
+  // Logout revokes the session server-side.
+  const logout = await post(baseUrl, "/api/auth/logout", {}, { Cookie: loginCookie });
+  assert.equal(logout.status, 200);
+  const afterLogout = await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: loginCookie } });
+  assert.equal((await afterLogout.json()).user, null, "revoked session must not resolve");
+
   process.stdout.write("VirtualWait E2E passed\n");
 } finally {
   await stop(web);
-  await stop(gateway);
   if (tempDirectory) await rm(tempDirectory, { recursive: true, force: true });
 }

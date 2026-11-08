@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { insertTestUsers } from "../testing/users";
 
 // node:test runs every test in this file inside one process and the SQLite
 // singleton is module-cached, so a single shared temp dir is required.
@@ -11,10 +12,7 @@ process.env.HEAD_CONFIRM_TIMEOUT_SEC = "180";
 process.env.PLAYING_TIMEOUT_SEC = "1500";
 
 function insertUser(db: import("../db/sqlite").Db, id: string, nickname: string, now: string) {
-  db.prepare(
-    `INSERT INTO app_user (id, nickname, show_rating_public, created_at, updated_at)
-     VALUES (?, ?, 1, ?, ?)`,
-  ).run(id, nickname, now, now);
+  insertTestUsers(db, [{ id, nickname }], now);
 }
 
 function insertDuoParty(
@@ -111,7 +109,7 @@ test("duo alone at head: timeout requeues to the tail and never unloads", async 
   const host = row("e3");
   const guest = row("e4");
   assert.equal(host.status, "WAITING", "duo must not be unloaded");
-  assert.equal(host.head_miss_count, 0, "miss count resets");
+  assert.equal(host.head_miss_count, 1, "the whole duo shares one missed-call count");
   assert.ok(host.sequence_number > 10, "host requeued to the tail");
   assert.ok(guest.sequence_number > 11, "guest requeued to the tail");
   // 排到队尾后若仍是唯一队首，markHeadEligibility 会立即重新打新确认戳。
@@ -179,9 +177,9 @@ test("duo timed out with a next group: the whole duo requeues behind it", async 
 
   assert.ok(seq("e6") > seq("e8"), "duo host must be behind the solo group");
   assert.ok(seq("e7") > seq("e8"), "duo guest must be behind the solo group");
-  assert.equal(miss("e6"), 0, "miss count resets under the new rule");
-  assert.equal(miss("e7"), 0);
-  assert.equal(miss("e8"), 0);
+  assert.equal(miss("e6"), 1, "the timed-out duo counts one miss");
+  assert.equal(miss("e7"), 1, "the whole duo shares the count");
+  assert.equal(miss("e8"), 0, "the group that did not time out is untouched");
 
   const party = db
     .prepare(`SELECT status FROM queue_party WHERE id = 'party-duo3'`)

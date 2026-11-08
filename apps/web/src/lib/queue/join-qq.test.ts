@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { insertTestUsers } from "../testing/users";
 
 test("joinQueue requires bound QQ", async () => {
   process.env.VIRTUALWAIT_DATA_DIR = mkdtempSync(path.join(tmpdir(), "vw-join-qq-"));
@@ -25,12 +26,14 @@ test("joinQueue requires bound QQ", async () => {
     closeMinute: 24 * 60 - 1,
   });
 
-  db.prepare(
-    `INSERT INTO app_user (id, nickname, show_rating_public, qq, created_at, updated_at)
-     VALUES
-      ('u-no-qq', 'NoQq', 1, NULL, ?, ?),
-      ('u-with-qq', 'WithQq', 1, '12345678', ?, ?)`,
-  ).run(now, now, now, now);
+  insertTestUsers(
+    db,
+    [
+      { id: "u-no-qq", nickname: "NoQq", qq: null },
+      { id: "u-with-qq", nickname: "WithQq", qq: "12345678" },
+    ],
+    now,
+  );
 
   assert.throws(() => joinQueue("queue-a", "u-no-qq", "SOLO"), /QQ_REQUIRED/);
 

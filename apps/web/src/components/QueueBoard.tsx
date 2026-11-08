@@ -15,10 +15,12 @@ const POLL_BASE_MS = 3500;
 const POLL_MAX_MS = 30_000;
 
 export function QueueBoard({
-  venueSlug, machineSlug, machineName, accent, initial, user,
+  venueSlug, machineSlug, machineName, accent, initial, user, requireQq = true,
 }: {
   venueSlug: string; machineSlug: string; machineName: string;
   accent: MachineAccent; initial: PublicQueueSnapshot; user: SessionUser | null;
+  /** When false, a bound QQ is optional and the bot @ notification is skipped. */
+  requireQq?: boolean;
 }) {
   const [data, setData] = useState(initial);
   const [busy, setBusy] = useState<string | null>(null);
@@ -53,17 +55,28 @@ export function QueueBoard({
 
   useEffect(() => {
     setNowMs(Date.now());
+    let timer: number | undefined;
     const tick = () => {
-      if (document.visibilityState !== "visible") return;
       const delay = Math.min(POLL_BASE_MS * 2 ** failStreakRef.current, POLL_MAX_MS);
-      void refresh();
-      window.setTimeout(tick, delay);
+      // Hidden tabs skip the fetch but must keep the chain alive, otherwise the
+      // board freezes forever after the user switches tabs.
+      if (document.visibilityState === "visible") void refresh();
+      timer = window.setTimeout(tick, delay);
     };
-    const timer = window.setTimeout(tick, POLL_BASE_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      // Catch up immediately when the player returns to the tab.
+      if (timer !== undefined) window.clearTimeout(timer);
+      void refresh();
+      timer = window.setTimeout(tick, POLL_BASE_MS);
+    };
+    timer = window.setTimeout(tick, POLL_BASE_MS);
     const clock = setInterval(() => setNowMs(Date.now()), 1000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
-      clearTimeout(timer);
+      if (timer !== undefined) window.clearTimeout(timer);
       clearInterval(clock);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       pollAbortRef.current?.abort();
       pollAbortRef.current = null;
     };
@@ -77,7 +90,7 @@ export function QueueBoard({
 
   const hours = coerceVenueHours({ openMinute: data.venue.openMinute, closeMinute: data.venue.closeMinute, label: data.venue.hoursLabel });
   const withinHours = nowMs ? isWithinHours(hours, nowMs) : true;
-  const hasQq = Boolean(user?.qq);
+  const hasQq = !requireQq || Boolean(user?.qq);
   const canJoinNow = data.queue.status === "OPEN" && withinHours && hasQq;
   const accentBtn = accent === "coral" || accent === "sun" ? "btn-coral" : "btn-mint";
 
@@ -139,7 +152,7 @@ export function QueueBoard({
                 <MySlotActions myEntry={myEntry} busy={busy} accentBtn={accentBtn} act={act} />
               )
             ) : (
-              <a className="btn-primary" href="/login">扫码登录</a>
+              <a className="btn-primary" href="/login">登录 / 注册</a>
             )}
           </div>
         </div>

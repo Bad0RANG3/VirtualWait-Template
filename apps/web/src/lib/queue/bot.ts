@@ -55,6 +55,12 @@ export type BotQueueDetail = {
   head: {
     playMode: "SOLO" | "DUO";
     players: BotHeadPlayer[];
+    /**
+     * How many call windows this group has already missed. The notifier keys
+     * its de-duplication on this value, so a group that timed out is called
+     * again once it becomes head with a fresh confirm window.
+     */
+    missCount: number;
   } | null;
   /** All waiting slots for this machine, in the same order as the public queue. */
   waitingQueue: BotWaitingSlot[];
@@ -238,6 +244,11 @@ export function getBotQueueDetail(
               displayName: entry.profile.displayName?.trim() || "未命名玩家",
               qq: null,
             })),
+      // Every member of a group shares the same miss count.
+      missCount: headSlot.entries.reduce(
+        (max, entry) => Math.max(max, entry.headMissCount ?? 0),
+        0,
+      ),
     };
   }
 
@@ -256,16 +267,4 @@ export function getBotQueueDetail(
     waitingQueue,
     now: nowIso(),
   };
-}
-
-/** Cooldown / head key helper (shared with tests and docs). */
-export function botHeadCooldownKey(
-  machineSlug: string,
-  players: Array<{ qq?: string | null }>,
-): string {
-  const qqs = players
-    .map((player) => (player.qq || "").trim())
-    .filter(Boolean)
-    .sort();
-  return `${machineSlug}_${qqs.join("_")}`;
 }

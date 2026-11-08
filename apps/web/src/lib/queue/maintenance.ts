@@ -1,22 +1,18 @@
 /**
- * 常驻维护：超时处理 + 清理过期 attempt/限流桶/QR 槽/完成令牌/IP 日绑定/
- * 不活跃资料/终态队列/审计(365d)/session(30d)。
+ * 常驻维护：超时处理 + 清理限流桶 / IP 日配额 / 不活跃登录元数据 /
+ * 终态队列(180d) / 审计(365d) / session(30d)。
  */
 import { getDb, nowIso, addSeconds } from "../db";
-import { cleanupOldRateLimitBuckets } from "../auth/rate-limit";
-import { cleanupExpiredCompletionCapabilities } from "../auth/completion-capability";
+import { cleanupExpiredRateLimitBuckets } from "../auth/rate-limit";
 import { shanghaiDayKey } from "../auth/time";
 import { env } from "../env";
 import { processTimeouts } from "./service";
 
 export type MaintenanceResult = {
   queuesProcessed: number;
-  expiredAttemptsDeleted: number;
   expiredRateLimitBucketsDeleted: number;
-  staleSlotsDeleted: number;
-  expiredCompletionTokensDeleted: number;
   expiredIpDayBindingsDeleted: number;
-  staleProfilesScrubbed: number;
+  staleLoginMetadataScrubbed: number;
   terminalQueueEntriesDeleted: number;
   queuePartiesDeleted: number;
   auditEventsDeleted: number;
@@ -93,21 +89,20 @@ function deleteQueueHistory(cutoff: string) {
   })();
 }
 
-function scrubStaleProfiles(cutoff: string, now: string) {
+/**
+ * Drop the last-login IP hash/day for accounts that have been inactive past
+ * the retention window and are not currently queued. The account itself,
+ * its nickname and password hash are kept — only the derived abuse-control
+ * metadata is removed.
+ */
+function scrubStaleLoginMetadata(cutoff: string, now: string) {
   const db = getDb();
   return (
     (
       db
         .prepare(
           `UPDATE app_user
-         SET sdgb_user_id_cipher = NULL,
-             display_name = NULL,
-             rating = NULL,
-             title = NULL,
-             icon_url = NULL,
-             avatar_url = NULL,
-             profile_snapshot = NULL,
-             last_login_ip_hash = NULL,
+         SET last_login_ip_hash = NULL,
              last_login_day = NULL,
              updated_at = ?
          WHERE updated_at < ?
@@ -116,12 +111,7 @@ function scrubStaleProfiles(cutoff: string, now: string) {
              WHERE queue_entry.user_id = app_user.id
                AND queue_entry.status IN ('WAITING','PLAYING')
            )
-           AND (
-             sdgb_user_id_cipher IS NOT NULL OR display_name IS NOT NULL OR
-             rating IS NOT NULL OR title IS NOT NULL OR icon_url IS NOT NULL OR
-             avatar_url IS NOT NULL OR profile_snapshot IS NOT NULL OR
-             last_login_ip_hash IS NOT NULL OR last_login_day IS NOT NULL
-           )`,
+           AND (last_login_ip_hash IS NOT NULL OR last_login_day IS NOT NULL)`,
         )
         .run(now, cutoff) as SqlRunResult
     ).changes ?? 0
@@ -129,10 +119,9 @@ function scrubStaleProfiles(cutoff: string, now: string) {
 }
 
 /**
- * Run independently of public queue reads so playing timeouts still
- * progress during quiet periods. It removes transient verification data and
- * applies the configured privacy retention policy for stale profile metadata,
- * terminal queue history and audit events.
+ * Run independently of public queue reads so playing timeouts still progress
+ * during quiet periods. It also applies the configured retention policy for
+ * derived abuse-control data, terminal queue history, audit events and sessions.
  */
 export function runMaintenance(now = nowIso()): MaintenanceResult {
   const db = getDb();
@@ -140,31 +129,7 @@ export function runMaintenance(now = nowIso()): MaintenanceResult {
   for (const queue of queues) processTimeouts(queue.id);
 
   const nowMs = new Date(now).getTime();
-  const transientCutoff = addSeconds(now, -env.transientDataRetentionSec);
-  const attempts = db
-    .prepare(
-      `DELETE FROM join_attempt
-       WHERE expires_at < ? AND status IN ('SUCCEEDED', 'FAILED', 'EXPIRED')`,
-    )
-    .run(transientCutoff) as SqlRunResult;
-  // Legacy local mock-job rows may still exist from older Web builds that
-  // short-circuited verification in-process. Drop them when present.
-  try {
-    db.prepare(`DELETE FROM gateway_job_mock WHERE expires_at < ?`).run(
-      transientCutoff,
-    );
-  } catch {
-    // Table absent on fresh installs that never used the in-process mock.
-  }
-  const rateLimitBuckets = cleanupOldRateLimitBuckets(
-    nowMs - env.rateLimitBucketRetentionSec * 1000,
-  );
-  const slots = db
-    .prepare(`DELETE FROM qr_concurrency_slot WHERE created_at_ms < ?`)
-    .run(nowMs - 120_000) as SqlRunResult;
-  // Completion capabilities live longer than a QR slot: the client may still
-  // be polling the gateway (up to ~60s) before it completes the login.
-  const completionTokens = cleanupExpiredCompletionCapabilities(nowMs - 300_000);
+  const rateLimitBuckets = cleanupExpiredRateLimitBuckets(nowMs);
 
   const ipBindingCutoffDay = shanghaiDayKey(
     nowMs - env.ipBindingRetentionDays * 86_400_000,
@@ -179,26 +144,21 @@ export function runMaintenance(now = nowIso()): MaintenanceResult {
   const auditEvents = db
     .prepare(`DELETE FROM audit_event WHERE created_at < ?`)
     .run(daysBefore(now, env.auditEventRetentionDays)) as SqlRunResult;
-  const staleProfilesScrubbed = scrubStaleProfiles(
-    daysBefore(now, env.profileDataRetentionDays),
+  const staleLoginMetadataScrubbed = scrubStaleLoginMetadata(
+    daysBefore(now, env.loginMetadataRetentionDays),
     now,
   );
   // Revoked and expired sessions cannot be revoked again; drop them once the
   // matching cookie would have expired anyway.
   const expiredSessions = db
-    .prepare(
-      `DELETE FROM session WHERE issued_at_ms < ?`,
-    )
+    .prepare(`DELETE FROM session WHERE issued_at_ms < ?`)
     .run(nowMs - env.sessionMaxAgeDays * 86_400_000) as SqlRunResult;
 
   return {
     queuesProcessed: queues.length,
-    expiredAttemptsDeleted: attempts.changes ?? 0,
     expiredRateLimitBucketsDeleted: rateLimitBuckets,
-    staleSlotsDeleted: slots.changes ?? 0,
-    expiredCompletionTokensDeleted: completionTokens,
     expiredIpDayBindingsDeleted: ipDayBindings.changes ?? 0,
-    staleProfilesScrubbed,
+    staleLoginMetadataScrubbed,
     terminalQueueEntriesDeleted: history.terminalQueueEntriesDeleted,
     queuePartiesDeleted: history.queuePartiesDeleted,
     auditEventsDeleted: auditEvents.changes ?? 0,

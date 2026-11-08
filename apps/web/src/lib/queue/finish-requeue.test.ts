@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { insertTestUsers } from "../testing/users";
 
 test("finish play requeues to the tail (user solo, admin duo) instead of unloading", async () => {
   process.env.VIRTUALWAIT_DATA_DIR = mkdtempSync(path.join(tmpdir(), "vw-finish-"));
@@ -14,18 +15,17 @@ test("finish play requeues to the tail (user solo, admin duo) instead of unloadi
   const db = getDb();
 
   const now = new Date().toISOString();
-  for (const [id, nickname, qq] of [
-    ["u1", "PlayerOne", "111111"],
-    ["u2", "PlayerTwo", "222222"],
-    ["u3", "PlayerThree", "333333"],
-    ["u4", "PlayerFour", "444444"],
-    ["u5", "PlayerFive", "555555"],
-  ] as const) {
-    db.prepare(
-      `INSERT INTO app_user (id, nickname, show_rating_public, qq, created_at, updated_at)
-       VALUES (?, ?, 1, ?, ?, ?)`,
-    ).run(id, nickname, qq, now, now);
-  }
+  insertTestUsers(
+    db,
+    [
+      { id: "u1", nickname: "PlayerOne", qq: "111111" },
+      { id: "u2", nickname: "PlayerTwo", qq: "222222" },
+      { id: "u3", nickname: "PlayerThree", qq: "333333" },
+      { id: "u4", nickname: "PlayerFour", qq: "444444" },
+      { id: "u5", nickname: "PlayerFive", qq: "555555" },
+    ],
+    now,
+  );
 
   // ---- Scenario 1: user solo finish --------------------------------------
   // e1 is PLAYING, e2 is WAITING behind it; queue-a already used seq 1..2.

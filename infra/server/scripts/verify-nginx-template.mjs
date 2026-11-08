@@ -67,7 +67,7 @@ verifyTemplate(
       /proxy_pass\s+https?:\/\/(?!127\.0\.0\.1:3000)/,
       "proxy to any service other than local Web",
     );
-    forbidPattern(/listen\s+8787\b/, "expose the Gateway listener");
+    forbidPattern(/listen\s+8787\b/, "expose a second backend service");
   }
 );
 

@@ -1,8 +1,13 @@
 import { defineConfig } from "@playwright/test";
+import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const dataDir = path.join(os.tmpdir(), "virtualwait-playwright-data");
+// A fresh SQLite directory per run keeps account/queue assertions
+// deterministic. Playwright starts the web server before global setup, so the
+// directory must not be reused (Windows cannot unlink a database that the
+// running server still holds open). The OS temp cleaner removes leftover runs.
+const dataDir = mkdtempSync(path.join(os.tmpdir(), "virtualwait-playwright-"));
 const adminToken = "playwright-admin-token-0123456789abcdef";
 const chromiumExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
 
@@ -35,10 +40,8 @@ export default defineConfig({
       },
     },
   ],
-  globalSetup: "./e2e/global-setup.ts",
-  globalTeardown: "./e2e/global-teardown.ts",
   webServer: {
-    command: "npm run dev -- -p 13001",
+    command: `npm run dev -- -p 13001`,
     url: "http://127.0.0.1:13001",
     reuseExistingServer: false,
     timeout: 30_000,
@@ -47,11 +50,9 @@ export default defineConfig({
       NEXT_TELEMETRY_DISABLED: "1",
       ADMIN_API_TOKEN: adminToken,
       APP_BASE_URL: "http://127.0.0.1:13001",
-      GATEWAY_MODE: "remote",
-      GATEWAY_BASE_URL: "http://127.0.0.1:8787",
-      GATEWAY_KEY_ID: "template-web-1",
-      GATEWAY_SHARED_SECRET: "CHANGE_ME_DEVELOPMENT_GATEWAY_SHARED_SECRET",
-      PUBLIC_ID_HMAC_SECRET: "CHANGE_ME_DEVELOPMENT_PUBLIC_ID_HMAC_SECRET",
+      SESSION_SECRET: "{{SECRET_5mzjcvqq}}",
+      REGISTRATION_ENABLED: "true",
+      CHECKIN_REQUIRED: "true",
       VIRTUALWAIT_DATA_DIR: dataDir,
     },
   },

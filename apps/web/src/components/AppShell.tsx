@@ -28,7 +28,7 @@ export function AppShell({
               </Link>
             ) : (
               <Link className="btn-primary" href="/login">
-                扫码登录
+                登录 / 注册
               </Link>
             )}
           </nav>

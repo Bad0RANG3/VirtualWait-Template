@@ -120,12 +120,18 @@ function processHeadConfirmTimeouts(queueId: string) {
   const deadline = addSeconds(eligibleAt, getHeadConfirmTimeoutSec());
   if (deadline > nowIso()) return;
 
-  // 队头确认超时：整组自动排到队尾（不后移一组、不卸卡）。
-  // 下一组队首随后获得新的确认窗口，由通知插件 @ 提醒。
+  // 队头确认超时：整组「记一次错过」与排到队尾在同一条守卫 UPDATE 里完成，
+  // 因此 web 进程与维护进程同时判定超时也不会把一次错过记成两次。
+  // head_miss_count 会进入通知插件的队首键，使同一组在获得新一轮确认窗口时
+  // 被重新 @；成功上机时由 startEntries 清零。
   const headEntryId = head.members[0]!.id;
-  if (requeueToEnd(queueId, headEntryId, ["WAITING"])) {
+  if (requeueToEnd(queueId, headEntryId, ["WAITING"], { bumpMissCount: true })) {
+    const missRow = db
+      .prepare(`SELECT head_miss_count FROM queue_entry WHERE id = ?`)
+      .get(headEntryId) as { head_miss_count?: number } | undefined;
     audit("ENTRY_HEAD_TIMEOUT_REQUEUE_END", "queue_entry", headEntryId, "SYSTEM", null, {
       partyId: head.members[0]!.party_id,
+      missCount: missRow?.head_miss_count ?? null,
     });
   }
 }

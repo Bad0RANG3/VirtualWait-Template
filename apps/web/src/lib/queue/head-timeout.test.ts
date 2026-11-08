@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { insertTestUsers } from "../testing/users";
 
 test("head confirm timeout requeues the group to the tail instead of unloading", async () => {
   process.env.VIRTUALWAIT_DATA_DIR = mkdtempSync(path.join(tmpdir(), "vw-head-"));
@@ -17,15 +18,14 @@ test("head confirm timeout requeues the group to the tail instead of unloading",
   const now = new Date(nowMs).toISOString();
   const past = new Date(nowMs - 181_000).toISOString();
 
-  for (const [id, nickname] of [
-    ["u1", "HeadUser"],
-    ["u2", "NextUser"],
-  ] as const) {
-    db.prepare(
-      `INSERT INTO app_user (id, nickname, show_rating_public, created_at, updated_at)
-       VALUES (?, ?, 1, ?, ?)`,
-    ).run(id, nickname, now, now);
-  }
+  insertTestUsers(
+    db,
+    [
+      { id: "u1", nickname: "HeadUser" },
+      { id: "u2", nickname: "NextUser" },
+    ],
+    now,
+  );
 
   db.prepare(
     `INSERT INTO queue_entry
@@ -49,7 +49,11 @@ test("head confirm timeout requeues the group to the tail instead of unloading",
     status: string;
   }>;
   assert.equal(afterFirst[0]?.id, "e2", "next group should become head");
-  assert.equal(afterFirst.find((row) => row.id === "e1")?.head_miss_count, 0, "miss count resets");
+  assert.equal(
+    afterFirst.find((row) => row.id === "e1")?.head_miss_count,
+    1,
+    "each missed call window is counted so the notifier calls the group again",
+  );
   assert.equal(afterFirst.find((row) => row.id === "e1")?.status, "WAITING", "not unloaded");
   assert.ok(
     afterFirst.find((row) => row.id === "e1")!.sequence_number >

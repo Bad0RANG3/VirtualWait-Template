@@ -3,6 +3,7 @@
  */
 import fs from "fs";
 import path from "path";
+import { env } from "../env";
 import { SCHEMA_SQL } from "./schema";
 import { openDatabase, type Db } from "./sqlite";
 import { migrate } from "./migrate";
@@ -24,6 +25,11 @@ function dbPath() {
 export function getDb(): Db {
   if (!globalForDb.__vwDb) {
     const db = openDatabase(dbPath());
+    // Install the busy handler *before* the first statement that may need to
+    // take a lock: switching to WAL takes a short lock itself.
+    // The web process and the maintenance worker are two writers on the same
+    // file, so wait instead of failing instantly with SQLITE_BUSY.
+    db.pragma(`busy_timeout = ${env.dbBusyTimeoutMs}`);
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
     db.exec(SCHEMA_SQL);

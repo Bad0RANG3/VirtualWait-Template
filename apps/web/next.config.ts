@@ -1,5 +1,14 @@
 import type { NextConfig } from "next";
 
+const isProduction = process.env.NODE_ENV === "production";
+
+// Next.js dev mode (webpack HMR + React refresh) evaluates modules with eval,
+// so `'unsafe-eval'` is required for the pages to hydrate in `next dev` and in
+// the Playwright browser gate. Production keeps the strict policy below.
+const scriptSrc = isProduction
+  ? "script-src 'self' 'unsafe-inline'"
+  : "script-src 'self' 'unsafe-inline' 'unsafe-eval'";
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -8,7 +17,7 @@ const securityHeaders = [
   {
     key: "Content-Security-Policy",
     value:
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; " +
+      `default-src 'self'; ${scriptSrc}; ` +
       "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; " +
       "font-src 'self' data:; connect-src 'self'; object-src 'none'; " +
       "base-uri 'self'; form-action 'self'; frame-ancestors 'none'",

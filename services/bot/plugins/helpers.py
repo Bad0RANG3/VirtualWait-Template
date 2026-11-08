@@ -12,8 +12,17 @@ logger = logging.getLogger("virtualwait.bot.queue_notify")
 _UMO_GROUP_RE = re.compile(r"(?:^|:)(\d{5,20})$")
 
 
-def build_head_key(machine_slug: str, players: list[dict[str, Any]]) -> str:
-    """同一队首组合的冷却键。QQ 为空时不会进入通知路径。"""
+def build_head_key(
+    machine_slug: str,
+    players: list[dict[str, Any]],
+    miss_count: int = 0,
+) -> str:
+    """同一队首组合的去重键。
+
+    ``miss_count`` 来自 Web 的 ``head.missCount``：该组每错过一次叫号窗口就 +1，
+    因此队伍里只剩一个人时，他超时被系统排回队尾后会得到一个新的键，从而被再次
+    @；成功上机后计数归零。QQ 为空时不会进入通知路径。
+    """
     qqs = sorted(
         {
             str(p.get("qq") or "").strip()
@@ -21,7 +30,7 @@ def build_head_key(machine_slug: str, players: list[dict[str, Any]]) -> str:
             if str(p.get("qq") or "").strip()
         }
     )
-    return f"{machine_slug}_{'_'.join(qqs)}"
+    return f"{machine_slug}_{max(0, int(miss_count))}_{'_'.join(qqs)}"
 
 
 def parse_json_object(raw: Any) -> dict[str, str]:
@@ -127,18 +136,13 @@ def build_call_reminder(reminder_minutes: int = 3) -> str:
     return f"，请在{max(1, reminder_minutes)}分钟内上机游玩"
 
 
-def should_notify(
-    *,
-    prev_head_key: str | None,
-    head_key: str,
-    now: float,
-    cooldown_until: dict[str, float],
-    cooldown_sec: float,
-) -> bool:
+def should_notify(*, prev_head_key: str | None, head_key: str) -> bool:
     """判断当前轮询是否应该发送提醒（跟随队首变化动态轮询）。
 
-    规则：队首变化（prev != head_key）才提醒；同一队首**只提醒一次**，
-    不再重复 @。轮询每 3 秒进行；队首 3 分钟未确认上机时 Web 会把
-    其排到队尾，新队首（head_key 变化）会再次被提醒。
+    规则：只有队首键变化才提醒，同一队首**只提醒一次**，不再重复 @。
+    队首键包含「该组已错过的叫号次数」，所以：
+    - 队首 3 分钟未确认上机被 Web 排到队尾后，即使队伍里只有他一个人，
+      键也会变化（missCount +1），他会再次被 @；
+    - 他成功上机后计数归零，下一轮从干净状态开始。
     """
     return prev_head_key != head_key

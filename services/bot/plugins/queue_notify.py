@@ -4,14 +4,13 @@
 从 AstrBot 插件 `plugins/astrbot_plugin_virtualwait_queue` 移植，统一到 NoneBot2：
 - 轮询 VirtualWait Web 的 Bot API（`/api/bot/catalog` + `/api/bot/queues/{venue}/{machine}`）；
 - 机台空闲且存在队首时，向对应 QQ 群发送队列文本 + 真实 @ 提醒；
-- 同一队首组合默认 5 分钟冷却，启动预热 2 轮，429/网络错误指数退避。
+- 队首键含「该组已错过的叫号次数」，同一队首只 @ 一次；启动预热 2 轮，429/网络错误指数退避。
 
 配置（.env，键名大写；NoneBot 读取为小写属性）：
     QUEUE_NOTIFY_ENABLED=true
     QUEUE_NOTIFY_BASE_URL=http://127.0.0.1:3000
     QUEUE_NOTIFY_BOT_TOKEN=<与 Web BOT_API_TOKEN 一致>
-    QUEUE_NOTIFY_POLL_INTERVAL_SEC=8
-    QUEUE_NOTIFY_COOLDOWN_SEC=300
+    QUEUE_NOTIFY_POLL_INTERVAL_SEC=5
     QUEUE_NOTIFY_REMINDER_MINUTES=3
     QUEUE_NOTIFY_WARMUP_ROUNDS=2
     QUEUE_NOTIFY_DEFAULT_GROUP=<兜底群号，纯数字>
@@ -72,7 +71,6 @@ _task: asyncio.Task | None = None
 _session: httpx.AsyncClient | None = None
 _stop = asyncio.Event()
 _last_head: dict[str, str] = {}
-_cooldown_until: dict[str, float] = {}
 _round = 0
 _backoff = 0.0
 _skipped_no_qq = 0
@@ -156,7 +154,6 @@ async def _poll_once(session: httpx.AsyncClient) -> None:
     routing = parse_json_object(_cfg("queue_notify_routing", "{}"))
     district_routing = parse_json_object(_cfg("queue_notify_district_routing", "{}"))
     default_group = str(_cfg("queue_notify_default_group", "") or "")
-    cooldown_sec = float(_cfg("queue_notify_cooldown_sec", 300) or 300)
 
     tasks = [
         _handle_machine(
@@ -166,7 +163,6 @@ async def _poll_once(session: httpx.AsyncClient) -> None:
             routing=routing,
             district_routing=district_routing,
             default_group=default_group,
-            cooldown_sec=cooldown_sec,
         )
         for m in hot
     ]
@@ -182,9 +178,8 @@ async def _handle_machine(
     routing: dict[str, str],
     district_routing: dict[str, str],
     default_group: str,
-    cooldown_sec: float,
 ) -> None:
-    global _skipped_no_qq, _last_head, _cooldown_until
+    global _skipped_no_qq, _last_head
     venue = str(machine.get("venueSlug") or "")
     mslug = str(machine.get("machineSlug") or "")
     if not venue or not mslug:
@@ -197,7 +192,11 @@ async def _handle_machine(
         return
 
     players = list(head.get("players") or [])
-    head_key = build_head_key(mslug, players)
+    try:
+        miss_count = max(0, int(head.get("missCount") or 0))
+    except (TypeError, ValueError):
+        miss_count = 0
+    head_key = build_head_key(mslug, players, miss_count)
     qqs = [
         str(p.get("qq") or "").strip()
         for p in players
@@ -212,16 +211,9 @@ async def _handle_machine(
     if is_warmup:
         _last_head[cache_key] = head_key
         return
-    now = time.time()
-    # 跟随队首变化动态轮询：队首变化立即提醒；同一队首冷却期内不重复，
-    # 冷却过后再次提醒（避免队列里的人全部上机后，最后轮到的人漏叫）。
-    if not should_notify(
-        prev_head_key=prev,
-        head_key=head_key,
-        now=now,
-        cooldown_until=_cooldown_until,
-        cooldown_sec=cooldown_sec,
-    ):
+    # 队首键变化才提醒：键包含「已错过的叫号次数」，因此即使队伍只剩一个人，
+    # 他超时被排到队尾后也会再次被 @（Web 侧 head.missCount 递增）。
+    if not should_notify(prev_head_key=prev, head_key=head_key):
         return
 
     group_id = resolve_group_id(
@@ -270,7 +262,6 @@ async def _handle_machine(
         return
 
     _last_head[cache_key] = head_key
-    _cooldown_until[head_key] = now + cooldown_sec
     logger.info(
         json.dumps(
             {
@@ -299,7 +290,7 @@ async def _loop() -> None:
                 float(_cfg("queue_notify_max_backoff_sec", 120) or 120),
                 max(5.0, (_backoff or 5.0) * 2),
             )
-        interval = float(_cfg("queue_notify_poll_interval_sec", 8) or 8)
+        interval = float(_cfg("queue_notify_poll_interval_sec", 5) or 5)
         wait = interval + _backoff
         try:
             await asyncio.wait_for(_stop.wait(), timeout=wait)

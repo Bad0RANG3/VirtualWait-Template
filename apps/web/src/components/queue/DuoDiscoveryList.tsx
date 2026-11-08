@@ -27,11 +27,7 @@ export function DuoDiscoveryList({
                   {host?.displayName || "发起人"} 的拼机
                 </div>
                 <div className="mt-0.5 text-sm text-ink-500">
-                  {host?.bound
-                    ? host.ratingVisible && typeof host.rating === "number"
-                      ? `R${host.rating}` : "R 隐藏"
-                    : "未绑定"}
-                  {host?.title ? ` · ${host.title}` : ""}
+                  等待拼机伙伴 · 2 人成组
                 </div>
               </div>
               <button className="btn-mint !py-1.5"

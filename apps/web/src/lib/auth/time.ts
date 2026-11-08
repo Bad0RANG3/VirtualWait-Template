@@ -1,7 +1,11 @@
-/** Asia/Shanghai is fixed UTC+8 (no DST). */
+/**
+ * Asia/Shanghai is fixed UTC+8 (no DST).
+ *
+ * Only the calendar-day key is needed today: the per-IP registration quota and
+ * `last_login_day` are both scoped to a Shanghai day.
+ */
 
 const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Calendar day key YYYY-MM-DD in Asia/Shanghai. */
 export function shanghaiDayKey(nowMs = Date.now()): string {
@@ -12,14 +16,3 @@ export function shanghaiDayKey(nowMs = Date.now()): string {
   return `${y}-${m}-${d}`;
 }
 
-/** Next local midnight (00:00) Asia/Shanghai, as UTC epoch ms. */
-export function nextShanghaiMidnightMs(nowMs = Date.now()): number {
-  const shanghaiNow = nowMs + SHANGHAI_OFFSET_MS;
-  const dayIndex = Math.floor(shanghaiNow / DAY_MS);
-  return (dayIndex + 1) * DAY_MS - SHANGHAI_OFFSET_MS;
-}
-
-/** Seconds remaining until next Shanghai midnight (min 1). */
-export function secondsUntilShanghaiMidnight(nowMs = Date.now()): number {
-  return Math.max(1, Math.floor((nextShanghaiMidnightMs(nowMs) - nowMs) / 1000));
-}

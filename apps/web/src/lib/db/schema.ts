@@ -1,6 +1,11 @@
 /**
- * 全量 DDL（SCHEMA_SQL）与增量迁移（MIGRATIONS_SQL）：队列、审计、
- * 防滥用（ip_day_binding）、completion_token、session 等表。
+ * 全量 DDL（SCHEMA_SQL）与增量迁移（MIGRATIONS_SQL）：场地、机台队列、
+ * 本地账号（app_user）、审计、防滥用（ip_day_binding、rate_limit_bucket）、
+ * session 等表。
+ *
+ * 身份模型：每个玩家一个**本地账号**（用户名 + scrypt 口令 + 展示昵称），
+ * 注册时用场地动态签到码证明本人在现场（见 lib/settings/checkin.ts）。
+ * 系统不再与任何外部身份服务或游戏服务器通信。
  */
 export const SCHEMA_SQL = `
 PRAGMA foreign_keys = ON;
@@ -18,6 +23,8 @@ CREATE TABLE IF NOT EXISTS venue (
   open_minute INTEGER,
   close_minute INTEGER,
   group_umo TEXT,
+  checkin_secret TEXT,
+  checkin_rotated_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -43,24 +50,16 @@ CREATE TABLE IF NOT EXISTS queue (
 
 CREATE TABLE IF NOT EXISTS app_user (
   id TEXT PRIMARY KEY,
-  nickname TEXT NOT NULL UNIQUE,
-  password_hash TEXT,
-  password_salt TEXT,
-  wechat_openid TEXT UNIQUE,
-  wechat_unionid TEXT,
-  avatar_url TEXT,
-  sdgb_identity_hash TEXT UNIQUE,
-  sdgb_user_id_cipher TEXT,
-  display_name TEXT,
-  rating INTEGER,
-  show_rating_public INTEGER NOT NULL DEFAULT 1,
-  title TEXT,
-  icon_url TEXT,
-  profile_snapshot TEXT,
-  bound_at TEXT,
+  username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  nickname TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  password_hash TEXT NOT NULL,
+  password_salt TEXT NOT NULL,
+  password_algo TEXT NOT NULL,
+  qq TEXT UNIQUE,
+  checkin_venue_id TEXT REFERENCES venue(id),
+  registered_at TEXT NOT NULL,
   last_login_ip_hash TEXT,
   last_login_day TEXT,
-  qq TEXT UNIQUE,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -102,22 +101,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS one_active_entry_per_user
 ON queue_entry (user_id)
 WHERE status IN ('WAITING','PLAYING');
 
-CREATE TABLE IF NOT EXISTS join_attempt (
-  id TEXT PRIMARY KEY,
-  user_id TEXT REFERENCES app_user(id),
-  queue_id TEXT REFERENCES queue(id),
-  purpose TEXT NOT NULL CHECK (purpose IN ('REGISTER_BIND','LOGIN_BIND','JOIN_QUEUE')),
-  gateway_job_id TEXT UNIQUE,
-  idempotency_key TEXT NOT NULL UNIQUE,
-  request_ip_hash TEXT,
-  status TEXT NOT NULL CHECK (status IN ('CREATED','PROCESSING','SUCCEEDED','FAILED','EXPIRED')),
-  error_code TEXT,
-  result_json TEXT,
-  expires_at TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS audit_event (
   id TEXT PRIMARY KEY,
   actor_type TEXT NOT NULL,
@@ -142,19 +125,9 @@ CREATE TABLE IF NOT EXISTS ip_day_binding (
 CREATE TABLE IF NOT EXISTS rate_limit_bucket (
   key TEXT PRIMARY KEY,
   window_start INTEGER NOT NULL,
+  window_sec INTEGER NOT NULL DEFAULT 0,
   count INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS qr_concurrency_slot (
-  id TEXT PRIMARY KEY,
-  created_at_ms INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS completion_token (
-  id TEXT PRIMARY KEY,
-  attempt_id TEXT NOT NULL,
-  created_at_ms INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS session (
@@ -164,19 +137,19 @@ CREATE TABLE IF NOT EXISTS session (
   issued_at_ms INTEGER NOT NULL,
   revoked_at_ms INTEGER
 );
+
+-- NOTE: indexes that depend on a *migrated* column must live in migrate.ts
+-- (see _ensureHotPathIndexes): SCHEMA_SQL runs before MIGRATIONS_SQL, so an
+-- index on queue_entry.party_id would fail on a database that predates that
+-- column and take the whole process down with it.
 `;
 
 /** Lightweight migrations for existing local SQLite files. */
 export const MIGRATIONS_SQL = [
-  `ALTER TABLE app_user ADD COLUMN wechat_openid TEXT`,
-  `ALTER TABLE app_user ADD COLUMN wechat_unionid TEXT`,
-  `ALTER TABLE app_user ADD COLUMN avatar_url TEXT`,
   `ALTER TABLE queue_entry ADD COLUMN party_id TEXT`,
   `ALTER TABLE queue_entry ADD COLUMN play_mode TEXT NOT NULL DEFAULT 'SOLO'`,
   `ALTER TABLE app_user ADD COLUMN last_login_ip_hash TEXT`,
   `ALTER TABLE app_user ADD COLUMN last_login_day TEXT`,
-  `ALTER TABLE app_user ADD COLUMN show_rating_public INTEGER NOT NULL DEFAULT 1`,
-  `ALTER TABLE join_attempt ADD COLUMN request_ip_hash TEXT`,
   `ALTER TABLE queue_entry ADD COLUMN head_eligible_at TEXT`,
   `ALTER TABLE queue_entry ADD COLUMN head_miss_count INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE venue ADD COLUMN address TEXT`,
@@ -194,4 +167,7 @@ export const MIGRATIONS_SQL = [
   `ALTER TABLE app_user ADD COLUMN qq TEXT`,
   `CREATE UNIQUE INDEX IF NOT EXISTS app_user_qq_unique ON app_user(qq) WHERE qq IS NOT NULL`,
   `ALTER TABLE venue ADD COLUMN group_umo TEXT`,
+  `ALTER TABLE venue ADD COLUMN checkin_secret TEXT`,
+  `ALTER TABLE venue ADD COLUMN checkin_rotated_at TEXT`,
+  `ALTER TABLE rate_limit_bucket ADD COLUMN window_sec INTEGER NOT NULL DEFAULT 0`,
 ];

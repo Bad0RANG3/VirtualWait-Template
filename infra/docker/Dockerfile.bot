@@ -1,10 +1,9 @@
 # VirtualWait QQ 机器人镜像（可复用）。
 #
 # 设计约束：
-# - 只复制 services/bot、packages/sdgb-client 与入口脚本，**不复制**个人/机厅私有覆盖
-#   （settings_local.py / .env* / napcat/ / data/ 等）；
-# - SDGB 公开默认参数已内置在 packages/sdgb-client/sdgb/settings.py，开箱即用；
-#   换机厅时用 VW_SDGB_* 环境变量覆盖。
+# - 只复制 services/bot 与入口脚本，**不复制**个人/运行数据
+#   （.env* / napcat/ / data/ 等）；
+# - 机器人只访问 VirtualWait Web 的 Bot API，不含任何游戏协议参数。
 # - 与 docker-compose.bot.yml 配套：拉起后唯一手动步骤是扫码登录机器人 QQ。
 #
 # 构建（可选，通常直接用预构建镜像）：
@@ -18,14 +17,13 @@ ARG VERSION=dev
 ARG PIP_INDEX_URL=https://pypi.org/simple
 
 LABEL org.opencontainers.image.title="virtualwait-bot" \
-      org.opencontainers.image.description="VirtualWait QQ 机器人（NoneBot2 + sdgb-client，NapCat OneBot v11）" \
+      org.opencontainers.image.description="VirtualWait QQ 机器人（NoneBot2 + NapCat OneBot v11，队列空闲通知）" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.source="https://github.com/Bad0RANG3/VirtualWait-Template"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    B50_DATA_DIR=/data
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
@@ -36,12 +34,9 @@ RUN python -m pip install --upgrade pip \
     && python -m pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" -r services/bot/requirements.txt
 
 COPY --chown=app:app services/bot ./services/bot
-COPY --chown=app:app packages/sdgb-client ./packages/sdgb-client
 COPY --chown=app:app infra/docker/entrypoint.bot.sh /usr/local/bin/virtualwait-bot
 
-RUN mkdir -p /data \
-    && chown -R app:app /data \
-    && chmod +x /usr/local/bin/virtualwait-bot
+RUN chmod +x /usr/local/bin/virtualwait-bot
 
 USER app
 

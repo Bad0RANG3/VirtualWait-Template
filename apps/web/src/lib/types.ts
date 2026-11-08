@@ -14,36 +14,28 @@ export type PlayMode = "SOLO" | "DUO";
 
 export type PartyStatus = "SEEKING" | "PENDING" | "CONFIRMED" | "DISBANDED";
 
+/** Public queue board only ever exposes the account's chosen display name. */
 export interface PublicProfile {
   displayName: string;
-  rating?: number | null;
-  ratingVisible?: boolean;
-  title?: string | null;
-  iconUrl?: string | null;
-  bound?: boolean;
 }
 
 export interface SessionUser {
   id: string;
+  /** Login name (case-insensitive unique, never shown on the public board). */
+  username: string;
+  /** Display name shown on the queue board and in bot notifications. */
   nickname: string;
   displayName: string;
-  rating: number | null;
-  showRatingPublic: boolean;
-  title: string | null;
-  bound: boolean;
-  avatarUrl: string | null;
   /** Bound QQ for queue join + bot @ notifications; never on public queue APIs. */
   qq: string | null;
-  loginProvider: "maimai" | "unknown";
+  /** Venue whose check-in code was used at registration. */
+  checkinVenueId: string | null;
+  registeredAt: string;
 }
 
 export interface PartyMemberView {
   entryId: string;
   displayName: string;
-  rating: number | null;
-  ratingVisible: boolean;
-  title: string | null;
-  bound: boolean;
   status: EntryStatus;
   isHost: boolean;
   confirmed: boolean;

@@ -7,8 +7,10 @@
 
 依赖 NapCat（OneBot 协议端）先启动并监听 ws://127.0.0.1:3001。
 加载 plugins/ 下的全部插件：
-- b50：/b50 成绩图、/fp 发票、/help
 - queue_notify：VirtualWait 机台空闲排队 @ 通知
+
+机器人只与本部署内的 VirtualWait Web（`/api/bot/*`，Bearer token）通信，
+不连接任何游戏服务器，也不处理登录二维码或写账号数据。
 """
 import sys
 from pathlib import Path
@@ -19,14 +21,10 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-BASE = Path(__file__).resolve().parent           # services/bot
-REPO_ROOT = BASE.parent.parent                    # 仓库根
-SDGB_CLIENT = REPO_ROOT / "packages" / "sdgb-client"
+BASE = Path(__file__).resolve().parent  # services/bot
 
-# 保证能 import 共享 sdgb 包（packages/sdgb-client）与本目录
-for _p in (str(REPO_ROOT), str(SDGB_CLIENT), str(BASE)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if str(BASE) not in sys.path:
+    sys.path.insert(0, str(BASE))
 
 import nonebot
 from nonebot.adapters.onebot.v11 import Adapter

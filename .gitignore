@@ -14,11 +14,14 @@
 **/.turbo/
 **/*.tsbuildinfo
 
+# Playwright
+**/test-results/
+**/playwright-report/
+
 # Local secrets and runtime data
 .env
 .env.*
 !.env.example
-packages/sdgb-client/sdgb/settings_local.py
 **/*.sqlite
 **/*.sqlite3
 **/*.db
@@ -29,7 +32,6 @@ packages/sdgb-client/sdgb/settings_local.py
 **/*.p12
 **/*.pfx
 **/backups/
-**/gateway.db
 
 # Editors / OS
 **/.DS_Store
@@ -48,11 +50,8 @@ packages/sdgb-client/sdgb/settings_local.py
 **/qqnt.json
 **/webui.json
 
-# Bot / sdgb-client 运行时数据与缓存（含账号数据，勿提交）
+# Web 运行数据（SQLite 及日志）
 data/
-**/token_cache.json
-**/records_cache.json
-**/music_data_cache.json
 **/*.log
 
 # 预构建镜像产物（体积大，不入库）

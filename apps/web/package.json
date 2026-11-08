@@ -8,9 +8,9 @@
   "scripts": {
     "dev": "cross-env NODE_OPTIONS=--experimental-sqlite next dev",
     "build": "cross-env NODE_OPTIONS=--experimental-sqlite next build",
-    "start": "cross-env NODE_OPTIONS=--experimental-sqlite next start",
+    "start": "node scripts/start.mjs",
     "lint": "eslint .",
-    "test": "tsx --test src/lib/gateway/contracts.test.ts src/lib/auth/ip.test.ts src/lib/auth/ip-binding.test.ts src/lib/auth/completion-capability.test.ts src/lib/queue/maintenance.test.ts src/lib/env.test.ts src/lib/api.test.ts src/lib/constants/catalog.test.ts src/lib/queue/head-timeout.test.ts src/lib/queue/head-timeout-duo.test.ts src/lib/queue/bot.test.ts src/lib/queue/join-qq.test.ts src/lib/queue/join-concurrency.test.ts src/lib/queue/public-snapshot.test.ts src/lib/queue/finish-requeue.test.ts",
+    "test": "tsx --test src/lib/auth/password.test.ts src/lib/auth/account.test.ts src/lib/auth/ip.test.ts src/lib/auth/ip-binding.test.ts src/lib/auth/rate-limit.test.ts src/lib/settings/checkin.test.ts src/lib/db/migrate.test.ts src/lib/db/backup.test.ts src/lib/queue/maintenance.test.ts src/lib/queue/requeue-guard.test.ts src/lib/env.test.ts src/lib/api.test.ts src/lib/constants/catalog.test.ts src/lib/queue/head-timeout.test.ts src/lib/queue/head-timeout-duo.test.ts src/lib/queue/bot.test.ts src/lib/queue/join-qq.test.ts src/lib/queue/join-concurrency.test.ts src/lib/queue/public-snapshot.test.ts src/lib/queue/finish-requeue.test.ts",
     "test:e2e": "node scripts/e2e.mjs",
     "test:browser": "playwright test",
     "preflight": "node scripts/preflight.mjs",
@@ -18,7 +18,8 @@
     "healthcheck": "node scripts/healthcheck.mjs",
     "db:backup": "cross-env NODE_OPTIONS=--experimental-sqlite tsx scripts/backup-db.ts",
     "db:verify": "cross-env NODE_OPTIONS=--experimental-sqlite tsx scripts/verify-backup-db.ts",
-    "db:reset": "node scripts/reset-db.mjs"
+    "db:reset": "node scripts/reset-db.mjs",
+    "account:create": "cross-env NODE_OPTIONS=--experimental-sqlite tsx scripts/create-account.ts"
   },
   "dependencies": {
     "lucide-react": "^0.525.0",

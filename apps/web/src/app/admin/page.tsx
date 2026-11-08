@@ -4,6 +4,10 @@ import { hasAdminSession } from "@/lib/auth/admin";
 import { getDb } from "@/lib/db";
 import { listAdminActiveEntries, listAuditEvents } from "@/lib/queue/service";
 import { getQueueTimeouts, listMachinesMeta, listVenueMeta } from "@/lib/settings";
+import {
+  getVenueCheckinCode,
+  type VenueCheckinCode,
+} from "@/lib/settings/checkin";
 
 export default async function AdminPage() {
   if (!(await hasAdminSession())) return <AdminLoginForm />;
@@ -33,11 +37,17 @@ export default async function AdminPage() {
   const timeouts = getQueueTimeouts();
   const venues = listVenueMeta();
   const machines = listMachinesMeta();
+  const serverNowMs = Date.now();
+  const checkinCodes = venues
+    .map((venue) => getVenueCheckinCode(venue.id, serverNowMs))
+    .filter((code): code is VenueCheckinCode => Boolean(code));
   return (
     <AdminDashboard
       timeouts={timeouts}
       venues={venues}
       machines={machines}
+      checkinCodes={checkinCodes}
+      serverNowMs={serverNowMs}
       queues={queues.map((queue) => ({
         id: queue.id,
         name: queue.name,

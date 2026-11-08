@@ -9,17 +9,21 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const web = path.join(root, "apps/web");
-const gateway = path.join(root, "services/sdgb-gateway");
 const bot = path.join(root, "services/bot");
+// Windows often exposes Python as `python` (or `py`) rather than `python3`.
+const python = process.env.PYTHON || "python3";
+// npm/npx are .cmd shims on Windows, which Node only executes through a shell.
+const useShell = process.platform === "win32";
 
 function run(label, command, args, options = {}) {
   console.info(`\n==> ${label}`);
-  const result = spawnSync(command, args, {
-    stdio: "inherit",
-    cwd: options.cwd || root,
-    env: { ...process.env, ...(options.env || {}) },
-    shell: false,
-  });
+  const cwd = options.cwd || root;
+  const env = { ...process.env, ...(options.env || {}) };
+  // Every argument here is a static path or flag, so a single command line is
+  // safe and avoids Node's args+shell deprecation warning on Windows.
+  const result = useShell
+    ? spawnSync([command, ...args].join(" "), { stdio: "inherit", cwd, env, shell: true })
+    : spawnSync(command, args, { stdio: "inherit", cwd, env, shell: false });
   if (result.status !== 0) {
     console.error(`FAILED: ${label}`);
     process.exit(result.status || 1);
@@ -28,14 +32,8 @@ function run(label, command, args, options = {}) {
 
 const productionEnv = {
   SESSION_SECRET: process.env.SESSION_SECRET || "0123456789abcdef0123456789abcdef",
-  PUBLIC_ID_HMAC_SECRET:
-    process.env.PUBLIC_ID_HMAC_SECRET || "0123456789abcdef0123456789abcdef",
-  GATEWAY_SHARED_SECRET:
-    process.env.GATEWAY_SHARED_SECRET || "0123456789abcdef0123456789abcdef",
   ADMIN_API_TOKEN: process.env.ADMIN_API_TOKEN || "0123456789abcdef0123456789abcdef",
   APP_BASE_URL: process.env.APP_BASE_URL || "https://wait.example.test",
-  GATEWAY_MODE: "remote",
-  GATEWAY_BASE_URL: process.env.GATEWAY_BASE_URL || "http://127.0.0.1:8787",
   TRUST_PROXY_HEADERS: "true",
 };
 
@@ -56,17 +54,8 @@ run("web browser", "npm", ["run", "test:browser"], {
     : {},
 });
 run("web build", "npm", ["run", "build"], { cwd: web, env: productionEnv });
-run("gateway tests", "python3", ["-m", "pytest", "-q"], {
-  cwd: gateway,
-  env: { PYTHONPATH: "src" },
-});
-run("shared sdgb-client compile", "python3", ["-m", "compileall", "-q", "packages/sdgb-client"]);
-run("TLS verification guard", "node", ["scripts/verify-tls-verification.mjs"]);
-run("shared sdgb-client tests", "python3", ["-m", "pytest", "-q", "tests"], {
-  cwd: path.join(root, "packages/sdgb-client"),
-});
-run("bot compile", "python3", ["-m", "compileall", "-q", "services/bot"]);
-run("bot tests", "python3", ["-m", "pytest", "-q", "tests"], {
+run("bot compile", python, ["-m", "compileall", "-q", "services/bot"]);
+run("bot tests", python, ["-m", "pytest", "-q", "tests"], {
   cwd: bot,
   env: { PYTHONPATH: "." },
 });

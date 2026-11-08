@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getSessionUser } from "@/lib/auth/session";
 import { getDb } from "@/lib/db";
+import { env } from "@/lib/env";
 import { joinQueue } from "@/lib/queue/service";
 import {
   assertSameOrigin,
@@ -23,8 +24,10 @@ export async function POST(
     assertSameOrigin(req);
     const user = await getSessionUser(req);
     if (!user) return mapServiceError(new Error("NOT_AUTHENTICATED"));
-    // 排队需绑定 QQ，便于空闲时群内 @；舞萌绑定仍可选
-    if (!user.qq) return mapServiceError(new Error("QQ_REQUIRED"));
+    // 排队需绑定 QQ，便于机台空闲时群内 @ 提醒（可用 REQUIRE_QQ_FOR_QUEUE=false 关闭）。
+    if (env.requireQqForQueue && !user.qq) {
+      return mapServiceError(new Error("QQ_REQUIRED"));
+    }
 
     const body = schema.parse(await readJsonBody(req, { emptyBody: {} }));
     const { venueSlug, machineSlug } = await ctx.params;

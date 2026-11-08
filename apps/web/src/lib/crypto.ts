@@ -1,19 +1,11 @@
 /**
- * 密码学原语：sha256/HMAC/随机令牌/常量时间比较/载荷签名（HMAC-SHA256）。
+ * 通用密码学原语：HMAC 匿名哈希、随机令牌、常量时间比较、载荷签名。
  */
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { env } from "./env";
-
-export function sha256Hex(input: string): string {
-  return createHash("sha256").update(input).digest("hex");
-}
 
 export function hmacHex(secret: string, input: string): string {
   return createHmac("sha256", secret).update(input).digest("hex");
-}
-
-export function identityHashFromUserId(userId: string | number): string {
-  return hmacHex(env.publicIdHmacSecret, `sdgb-user:${userId}`);
 }
 
 export function randomToken(bytes = 24): string {
